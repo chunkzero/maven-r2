@@ -1,355 +1,174 @@
 import { createContext, useContext, useState } from "react";
-import {
-    Link,
-    NavLink,
-    Navigate,
-    Route,
-    Routes,
-    useNavigate,
-    useLocation,
-    useParams,
-} from "react-router";
-import {
-    Activity,
-    ArrowUpRight,
-    Box,
-    ChevronDown,
-    FolderGit2,
-    KeyRound,
-    LogOut,
-    Moon,
-    Plus,
-    Settings2,
-    Sun,
-    Users,
-    Terminal,
-    Menu,
-    X,
-} from "lucide-react";
+import { Link, NavLink, Navigate, Route, Routes, useNavigate, useParams } from "react-router";
 import { z } from "zod";
 import { accountSchema, configSchema, meSchema, type Account } from "@maven-r2/contracts/schemas";
 import { api, authClient, useAction, useApi } from "./api";
-import { Code, Empty, ErrorNotice, Field, Loading, Modal } from "./components";
+import { ErrorNotice, Field, Loading, Modal } from "./components";
 import { Repositories, RepositoryBrowser } from "./repositories";
 import { Tokens } from "./tokens";
 import { Members, Audit, AccountSettings, Invite } from "./settings";
 
-type Session = z.infer<typeof meSchema>["user"];
-const Workspace = createContext<{ account: Account; user: Session }>({
-    account: null!,
-    user: null,
-});
+type User = z.infer<typeof meSchema>["user"];
+const Workspace = createContext<{ account: Account; user: User }>({ account: null!, user: null });
 export const useWorkspace = () => useContext(Workspace);
 
 export function App() {
     const config = useApi("/api/config", configSchema),
         me = useApi("/api/me", meSchema),
         accounts = useApi("/api/accounts", z.array(accountSchema));
-    const [dark, setDark] = useState(() => localStorage.getItem("theme") === "dark");
-    const [creating, setCreating] = useState(false),
-        [help, setHelp] = useState(false),
-        [mobile, setMobile] = useState(false);
-    const navigate = useNavigate(),
-        route = useLocation();
-    const user = me.data?.user ?? null;
-    const toggleTheme = () => {
-        const value = !dark;
-        setDark(value);
-        localStorage.setItem("theme", value ? "dark" : "light");
-    };
+    const [creating, setCreating] = useState(false);
     if (config.isPending || accounts.isPending || me.isPending) return <Loading />;
-    const error = config.error ?? accounts.error ?? me.error;
-    if (error)
+    if (!config.data || !accounts.data)
         return (
-            <div className="standalone">
-                <ErrorNotice error={error} />
+            <main>
+                <ErrorNotice error={config.error ?? accounts.error ?? me.error} />
                 <button className="button" onClick={() => location.reload()}>
                     Try again
                 </button>
-            </div>
+            </main>
         );
-    const login = () =>
-        authClient.signIn.social({ provider: "github", callbackURL: location.href });
-    const defaultPath = accounts.data?.[0] ? `/a/${accounts.data[0].slug}` : "/welcome";
+    const user = me.data?.user ?? null;
+    const home = accounts.data[0] ? `/a/${accounts.data[0].slug}` : "/welcome";
+    const create =
+        user &&
+        config.data.instanceMode === "multi" &&
+        (config.data.allowAccountCreation || user.admin)
+            ? () => setCreating(true)
+            : undefined;
+    const provider = config.data.githubEnabled ? "github" : config.data.oidcEnabled ? "oidc" : null;
     return (
-        <div className={`app ${dark ? "dark" : ""}`}>
-            <aside className={`sidebar ${mobile ? "visible" : ""}`}>
-                <Link to={defaultPath} className="brand">
-                    <span className="brand-mark">
-                        <Box size={23} />
-                    </span>
-                    <span>
-                        maven<span className="brand-suffix">r2</span>
-                    </span>
-                    <span className="edition">BETA</span>
+        <>
+            <header className="topbar">
+                <Link to={home} className="brand">
+                    Maven R2
                 </Link>
-                <div className="workspace-picker">
-                    <label htmlFor="workspace">WORKSPACE</label>
-                    <div>
-                        <select
-                            id="workspace"
-                            aria-label="Select workspace"
-                            value={route.pathname.split("/")[2] ?? accounts.data?.[0]?.slug ?? ""}
-                            onChange={(e) => navigate(`/a/${e.target.value}`)}
-                        >
-                            {accounts.data?.map((account) => (
-                                <option key={account.id} value={account.slug}>
-                                    {account.name}
-                                </option>
-                            ))}
-                            {!accounts.data?.length && <option>No workspace</option>}
-                        </select>
-                        <ChevronDown size={15} />
-                    </div>
-                </div>
                 <Routes>
                     <Route
                         path="/a/:account/*"
-                        element={
-                            <Sidebar
-                                accounts={accounts.data ?? []}
-                                onNavigate={() => setMobile(false)}
-                            />
-                        }
+                        element={<Nav accounts={accounts.data} onCreate={create} />}
                     />
-                    <Route
-                        path="*"
-                        element={<div className="sidebar-caption">Your packages. Your space.</div>}
-                    />
+                    <Route path="*" element={null} />
                 </Routes>
-                {user &&
-                    config.data?.instanceMode === "multi" &&
-                    (config.data.allowAccountCreation || user.admin) && (
-                        <button className="sidebar-link" onClick={() => setCreating(true)}>
-                            <Plus size={17} />
-                            New workspace
-                        </button>
-                    )}
-                <div className="sidebar-bottom">
-                    <div className="sidebar-card">
-                        <span className="status-dot" />
-                        <strong>A home for your artifacts.</strong>
-                        <p>
-                            Simple publishing.
-                            <br />
-                            Storage that grows with you.
-                        </p>
-                        <button onClick={() => setHelp(true)}>
-                            Publishing guide <ArrowUpRight size={14} />
-                        </button>
-                    </div>
-                    <div className="sidebar-footer">
-                        <span>Built on Cloudflare R2</span>
-                        <button
-                            className="icon-button"
-                            aria-label={dark ? "Use light theme" : "Use dark theme"}
-                            onClick={toggleTheme}
-                        >
-                            {dark ? <Sun size={17} /> : <Moon size={17} />}
-                        </button>
-                    </div>
-                </div>
-            </aside>
-            <div className="main-shell">
-                <div className="topbar">
-                    <button
-                        className="icon-button mobile-menu"
-                        aria-label="Toggle navigation"
-                        onClick={() => setMobile(!mobile)}
-                    >
-                        {mobile ? <X size={20} /> : <Menu size={20} />}
-                    </button>
-                    <span className="topbar-label">ARTIFACT REGISTRY</span>
-                    <div className="topbar-actions">
-                        <button className="button subtle small" onClick={() => setHelp(true)}>
-                            <Terminal size={15} /> Quick start
-                        </button>
-                        {user ? (
-                            <>
-                                <div className="avatar">{user.name.slice(0, 2).toUpperCase()}</div>
-                                <span className="user-name">{user.name}</span>
-                                <button
-                                    className="icon-button"
-                                    aria-label="Sign out"
-                                    onClick={async () => {
-                                        await authClient.signOut();
-                                        location.assign("/");
-                                    }}
-                                >
-                                    <LogOut size={16} />
-                                </button>
-                            </>
-                        ) : config.data?.githubEnabled ? (
-                            <button className="button small" onClick={() => void login()}>
-                                Sign in with GitHub <ArrowUpRight size={14} />
-                            </button>
-                        ) : config.data?.oidcEnabled ? (
-                            <button
-                                className="button small"
-                                onClick={() =>
-                                    void authClient.signIn.social({
-                                        provider: "oidc",
-                                        callbackURL: location.href,
-                                    })
-                                }
-                            >
-                                Sign in
-                            </button>
-                        ) : (
-                            <span className="muted small-text">Public access</span>
-                        )}
-                    </div>
-                </div>
-                <main>
-                    <Routes>
-                        <Route
-                            path="/a/:account/*"
-                            element={<AccountRoutes accounts={accounts.data ?? []} user={user} />}
-                        />
-                        <Route path="/invite/:secret" element={<Invite user={user} />} />
-                        <Route
-                            path="/tokens"
-                            element={
-                                <Navigate
-                                    to={
-                                        defaultPath === "/welcome"
-                                            ? defaultPath
-                                            : defaultPath + "/tokens"
-                                    }
-                                    replace
-                                />
-                            }
-                        />
-                        <Route
-                            path="/welcome"
-                            element={
-                                <div className="welcome">
-                                    <div className="eyebrow">MAVEN R2</div>
-                                    <h1>
-                                        Your artifacts,
-                                        <br />
-                                        at home.
-                                    </h1>
-                                    <p>A quiet, reliable place for the packages you build.</p>
-                                    <Empty
-                                        title={
-                                            user ? "No workspaces yet" : "Welcome to your registry"
-                                        }
-                                    >
-                                        {user
-                                            ? "Create a workspace or accept an invitation to get started."
-                                            : "Public repositories will appear here. Sign in to access your private workspaces."}
-                                    </Empty>
-                                    {user && config.data?.allowAccountCreation && (
-                                        <button
-                                            className="button primary"
-                                            onClick={() => setCreating(true)}
-                                        >
-                                            Create workspace
-                                        </button>
-                                    )}
-                                </div>
-                            }
-                        />
-                        <Route path="*" element={<Navigate to={defaultPath} replace />} />
-                    </Routes>
-                </main>
-                <footer className="main-footer">
-                    <span>Maven R2</span>
-                    <span>Built for the things you build.</span>
-                </footer>
-            </div>
-            {creating && <CreateAccount close={() => setCreating(false)} />}
-            {help && (
-                <Modal title="Publish your first package" onClose={() => setHelp(false)}>
-                    <p className="muted">
-                        Create a scoped token in your workspace, then configure your build to use
-                        the local proxy.
-                    </p>
-                    <ol className="steps">
-                        <li>
-                            <strong>Connect your instance</strong>
-                            <Code>{`maven-r2 login --server ${location.origin}`}</Code>
-                        </li>
-                        <li>
-                            <strong>Point your build at the proxy</strong>
-                            <p>
-                                Use <code>MAVEN_R2_URL</code>, <code>MAVEN_R2_USERNAME</code>, and{" "}
-                                <code>MAVEN_R2_PASSWORD</code> from the environment for your
-                                publishing repository.
-                            </p>
-                        </li>
-                        <li>
-                            <strong>Publish</strong>
-                            <Code>{`maven-r2 publish --repository ${accounts.data?.[0]?.slug ?? "account"}/releases -- ./gradlew publish`}</Code>
-                            <p>
-                                Your release becomes available when the build and validation
-                                succeed.
-                            </p>
-                        </li>
-                    </ol>
+                <div className="topbar-end">
                     <a
-                        className="text-link"
                         href="https://github.com/chunkzero/maven-r2#publishing"
                         target="_blank"
                         rel="noreferrer"
                     >
-                        Full Maven and Gradle setup <ArrowUpRight size={14} />
+                        Docs
                     </a>
-                </Modal>
-            )}
-        </div>
+                    {user ? (
+                        <>
+                            <span className="muted">{user.name}</span>
+                            <button
+                                className="button small"
+                                onClick={async () => {
+                                    await authClient.signOut();
+                                    location.assign("/");
+                                }}
+                            >
+                                Sign out
+                            </button>
+                        </>
+                    ) : (
+                        provider && (
+                            <button
+                                className="button small primary"
+                                onClick={() =>
+                                    void authClient.signIn.social({
+                                        provider,
+                                        callbackURL: location.href,
+                                    })
+                                }
+                            >
+                                {provider === "github" ? "Sign in with GitHub" : "Sign in"}
+                            </button>
+                        )
+                    )}
+                </div>
+            </header>
+            <main>
+                <Routes>
+                    <Route
+                        path="/a/:account/*"
+                        element={<AccountRoutes accounts={accounts.data} user={user} />}
+                    />
+                    <Route path="/invite/:secret" element={<Invite user={user} />} />
+                    <Route
+                        path="/welcome"
+                        element={
+                            <>
+                                <h1>Maven R2</h1>
+                                <p className="muted">
+                                    {user
+                                        ? "You are not a member of any workspace yet. Create one or accept an invitation."
+                                        : "Sign in to see your workspaces. Public repositories are listed without signing in."}
+                                </p>
+                                {create && (
+                                    <button className="button primary" onClick={create}>
+                                        Create workspace
+                                    </button>
+                                )}
+                            </>
+                        }
+                    />
+                    <Route path="*" element={<Navigate to={home} replace />} />
+                </Routes>
+            </main>
+            {creating && <CreateAccount close={() => setCreating(false)} />}
+        </>
     );
 }
 
-function Sidebar({ accounts, onNavigate }: { accounts: Account[]; onNavigate: () => void }) {
-    const { account: slug } = useParams(),
-        account = accounts.find((account) => account.slug === slug),
+function Nav({ accounts, onCreate }: { accounts: Account[]; onCreate?: () => void }) {
+    const { account: slug = "" } = useParams(),
+        navigate = useNavigate();
+    const account = accounts.find((account) => account.slug === slug),
         base = `/a/${slug}`;
     const admin = account?.role === "owner" || account?.role === "admin";
-    const links = [
-        { path: base, label: "Repositories", icon: FolderGit2, end: true },
-        ...(account?.role
-            ? [{ path: base + "/tokens", label: "Access tokens", icon: KeyRound, end: false }]
-            : []),
-        ...(admin
-            ? [
-                  { path: base + "/members", label: "Members & services", icon: Users, end: false },
-                  { path: base + "/audit", label: "Activity", icon: Activity, end: false },
-                  {
-                      path: base + "/settings",
-                      label: "Workspace settings",
-                      icon: Settings2,
-                      end: false,
-                  },
-              ]
-            : []),
-    ];
     return (
-        <nav>
-            {links.map(({ path, label, icon: Icon, end }) => (
-                <NavLink
-                    key={path}
-                    to={path}
-                    end={end}
-                    className={({ isActive }) => `sidebar-link ${isActive ? "active" : ""}`}
-                    onClick={onNavigate}
+        <nav className="nav">
+            {(accounts.length > 1 || onCreate) && (
+                <select
+                    aria-label="Workspace"
+                    value={slug}
+                    onChange={(e) => navigate(`/a/${e.target.value}`)}
                 >
-                    <Icon size={18} />
-                    {label}
-                </NavLink>
-            ))}
+                    {accounts.map((account) => (
+                        <option key={account.id} value={account.slug}>
+                            {account.name}
+                        </option>
+                    ))}
+                </select>
+            )}
+            {onCreate && (
+                <button className="button small" onClick={onCreate}>
+                    New workspace
+                </button>
+            )}
+            <NavLink to={base} end>
+                Repositories
+            </NavLink>
+            {account?.role && <NavLink to={base + "/tokens"}>Tokens</NavLink>}
+            {admin && (
+                <>
+                    <NavLink to={base + "/members"}>Members</NavLink>
+                    <NavLink to={base + "/audit"}>Activity</NavLink>
+                    <NavLink to={base + "/settings"}>Settings</NavLink>
+                </>
+            )}
         </nav>
     );
 }
-function AccountRoutes({ accounts, user }: { accounts: Account[]; user: Session }) {
+function AccountRoutes({ accounts, user }: { accounts: Account[]; user: User }) {
     const { account: slug } = useParams(),
         account = accounts.find((account) => account.slug === slug);
     if (!account)
         return (
-            <Empty title="Workspace unavailable">
-                Sign in with an account that has access, or choose another workspace.
-            </Empty>
+            <p className="empty">
+                This workspace is unavailable. Sign in with an account that has access, or choose
+                another workspace.
+            </p>
         );
     return (
         <Workspace.Provider value={{ account, user }}>
@@ -390,7 +209,6 @@ function CreateAccount({ close }: { close: () => void }) {
                         onChange={(e) => setName(e.target.value)}
                         required
                         maxLength={100}
-                        placeholder="Acme Engineering"
                     />
                 </Field>
                 <Field label="URL slug" hint="Lowercase letters, numbers, and hyphens.">
@@ -399,7 +217,6 @@ function CreateAccount({ close }: { close: () => void }) {
                         onChange={(e) => setSlug(e.target.value)}
                         required
                         pattern="[a-z0-9][a-z0-9-]{0,62}"
-                        placeholder="acme"
                     />
                 </Field>
                 <ErrorNotice error={create.error} />

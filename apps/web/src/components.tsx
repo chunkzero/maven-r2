@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Check, Copy, LoaderCircle, PackageOpen, X, AlertCircle } from "lucide-react";
+import { Check, Copy, LoaderCircle, X } from "lucide-react";
 
 export function bytes(value: number) {
     if (value < 1024) return `${value} B`;
@@ -25,86 +25,60 @@ export function Badge({
 }) {
     return <span className={`badge ${tone}`}>{children}</span>;
 }
-export function PageTitle({
-    eyebrow,
-    title,
-    description,
-    action,
-}: {
-    eyebrow?: string;
-    title: string;
-    description: string;
-    action?: ReactNode;
-}) {
+export function PageHeader({ title, children }: { title: ReactNode; children?: ReactNode }) {
     return (
-        <header className="page-title">
-            <div>
-                {eyebrow && <div className="eyebrow">{eyebrow}</div>}
-                <h1>{title}</h1>
-                <p>{description}</p>
-            </div>
-            {action}
+        <header className="page-header">
+            <h1>{title}</h1>
+            {children && <div className="actions">{children}</div>}
         </header>
     );
 }
-export function Empty({ title, children }: { title: string; children: ReactNode }) {
-    return (
-        <div className="empty">
-            <div className="empty-icon">
-                <PackageOpen size={28} />
-            </div>
-            <h3>{title}</h3>
-            <p>{children}</p>
-        </div>
-    );
+export function Empty({ children }: { children: ReactNode }) {
+    return <p className="empty">{children}</p>;
 }
 export function Loading() {
     return (
-        <div className="loading" role="status">
-            <LoaderCircle className="spin" size={20} /> Loading…
-        </div>
+        <p className="empty" role="status">
+            <LoaderCircle className="spin" size={16} /> Loading…
+        </p>
     );
 }
 export function ErrorNotice({ error }: { error: Error | null | undefined }) {
     return error ? (
-        <div className="notice error" role="alert">
-            <AlertCircle size={18} />
-            <span>{error.message}</span>
-        </div>
+        <p className="notice error" role="alert">
+            {error.message}
+        </p>
     ) : null;
 }
-export function CopyButton({ value, label = "Copy" }: { value: string; label?: string }) {
-    const [copied, setCopied] = useState(false),
-        [error, setError] = useState(false);
+export function CopyButton({ value }: { value: string }) {
+    const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
     useEffect(() => {
-        if (!copied) return;
-        const timeout = setTimeout(() => setCopied(false), 2000);
+        if (state === "idle") return;
+        const timeout = setTimeout(() => setState("idle"), 2000);
         return () => clearTimeout(timeout);
-    }, [copied]);
+    }, [state]);
     return (
         <button
             type="button"
-            className="button subtle small"
-            onClick={() => {
+            className="button small"
+            aria-label="Copy"
+            onClick={() =>
                 navigator.clipboard.writeText(value).then(
-                    () => {
-                        setCopied(true);
-                        setError(false);
-                    },
-                    () => setError(true),
-                );
-            }}
+                    () => setState("copied"),
+                    () => setState("failed"),
+                )
+            }
         >
-            {copied ? <Check size={14} /> : <Copy size={14} />}{" "}
-            {error ? "Select and copy manually" : copied ? "Copied" : label}
+            {state === "copied" ? <Check size={13} /> : <Copy size={13} />}
+            {state === "failed" ? "Copy manually" : state === "copied" ? "Copied" : "Copy"}
         </button>
     );
 }
 export function Code({ children }: { children: string }) {
     return (
         <div className="code">
-            <CopyButton value={children} />
             <pre>{children}</pre>
+            <CopyButton value={children} />
         </div>
     );
 }
@@ -129,15 +103,52 @@ export function Modal({
                 <h2>{title}</h2>
                 <button
                     type="button"
-                    className="icon-button"
+                    className="button small"
                     aria-label="Close dialog"
                     onClick={onClose}
                 >
-                    <X size={20} />
+                    <X size={15} />
                 </button>
             </div>
             {children}
         </dialog>
+    );
+}
+export function Confirm({
+    title,
+    action,
+    children,
+    pending,
+    error,
+    onConfirm,
+    onClose,
+}: {
+    title: string;
+    action: string;
+    children: ReactNode;
+    pending: boolean;
+    error: Error | null;
+    onConfirm: () => void;
+    onClose: () => void;
+}) {
+    return (
+        <Modal title={title} onClose={onClose}>
+            <p>{children}</p>
+            <ErrorNotice error={error} />
+            <div className="form-footer">
+                <button type="button" className="button" onClick={onClose}>
+                    Cancel
+                </button>
+                <button
+                    type="button"
+                    className="button danger"
+                    disabled={pending}
+                    onClick={onConfirm}
+                >
+                    {action}
+                </button>
+            </div>
+        </Modal>
     );
 }
 export function Field({

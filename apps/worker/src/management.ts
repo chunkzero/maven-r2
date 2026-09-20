@@ -456,22 +456,19 @@ export function registerManagement(app: OpenAPIHono<AppEnv>) {
         if (!member) fail(404, "Member not found");
         if ((member.role === "owner" || input.role === "owner") && actorRole !== "owner")
             fail(403, "Only owners can manage owners");
-        if (member.role === "owner" && input.role !== "owner")
-            fail(409, "Add a replacement owner, then remove this membership");
-        await c.env.DB.batch([
-            c.env.DB.prepare("UPDATE members SET role=? WHERE account_id=? AND user_id=?").bind(
-                input.role,
-                account.id,
-                c.req.param("user"),
-            ),
-            audit(
-                c.env,
-                account.id,
-                c.get("principal")!.actor,
-                "member.updated",
-                c.req.param("user"),
-            ),
-        ]);
+        const result = await c.env.DB.prepare(
+            "UPDATE members SET role=? WHERE account_id=? AND user_id=? AND (role!='owner' OR ?='owner' OR (SELECT count(*) FROM members WHERE account_id=? AND role='owner')>1)",
+        )
+            .bind(input.role, account.id, c.req.param("user"), input.role, account.id)
+            .run();
+        if (!result.meta.changes) fail(409, "An account must retain an owner");
+        await audit(
+            c.env,
+            account.id,
+            c.get("principal")!.actor,
+            "member.updated",
+            c.req.param("user"),
+        ).run();
         return c.json({ ok: true });
     });
     app.delete("/api/accounts/:account/members/:user", async (c) => {
@@ -619,7 +616,7 @@ export function registerManagement(app: OpenAPIHono<AppEnv>) {
         if (!invite) fail(404, "Invitation not found or expired");
         await c.env.DB.batch([
             c.env.DB.prepare(
-                "INSERT OR IGNORE INTO members (account_id,user_id,role) VALUES (?,?,?)",
+                "INSERT INTO members (account_id,user_id,role) VALUES (?,?,?) ON CONFLICT(account_id,user_id) DO UPDATE SET role=excluded.role WHERE role!='owner'",
             ).bind(invite.account_id, user.id, invite.role),
             c.env.DB.prepare("UPDATE invitations SET accepted=1 WHERE id=?").bind(invite.id),
             audit(

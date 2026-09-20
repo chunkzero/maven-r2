@@ -120,7 +120,7 @@ Back up D1 **and** R2 together: D1 contains the published-object references and 
 | `MAX_FILE_BYTES`              | Instance upper bound for each artifact; repositories can set a lower limit. Default: 2 GiB.                              |
 | `MAX_ACCOUNT_BYTES`           | Default workspace quota. Published files and reserved uploads both count. Default: 10 GiB.                               |
 
-Optional OIDC uses `OIDC_DISCOVERY_URL`, `OIDC_CLIENT_ID`, and `OIDC_CLIENT_SECRET`, with callback `/api/auth/oauth2/callback/oidc`. GitHub remains the instance-admin identity source. Provider account linking is disabled. Invitation links are copied by an administrator and shared manually; no email delivery service is required.
+Optional OIDC uses `OIDC_DISCOVERY_URL`, `OIDC_CLIENT_ID`, and `OIDC_CLIENT_SECRET`, with callback `/api/auth/callback/oidc`. GitHub remains the instance-admin identity source. Provider account linking is disabled. Invitation links are copied by an administrator and shared manually; no email delivery service is required.
 
 An **account** is a workspace; a **user** is a login identity. Owners manage other owners, admins manage repositories and ordinary memberships, publishers publish, and readers download. Instance administrators can manage all workspaces, including suspension and quotas. A token's permissions are the intersection of its owner's current role and its scopes. Service accounts are readers or publishers, not administrators.
 

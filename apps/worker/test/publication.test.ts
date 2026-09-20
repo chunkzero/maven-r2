@@ -3,7 +3,7 @@ import { auth } from "../src/auth";
 import { cleanup } from "../src/cleanup";
 import { env } from "cloudflare:workers";
 import { applyD1Migrations, reset } from "cloudflare:test";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { app } from "../src/index";
 import { hash, newSecret } from "../src/security";
 import { parseMetadata } from "../src/metadata";
@@ -312,6 +312,66 @@ async function browserUser(id = "owner", email = "owner@example.com", admin = tr
 }
 
 describe("account management and lifecycle", () => {
+    it("starts OIDC sign-in through the social endpoint with the configured callback", async () => {
+        const discovery = vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+            Response.json({
+                issuer: "https://idp.test",
+                authorization_endpoint: "https://idp.test/authorize",
+                token_endpoint: "https://idp.test/token",
+                userinfo_endpoint: "https://idp.test/userinfo",
+            }),
+        );
+        try {
+            const response = await app.request(
+                "https://repo.test/api/auth/sign-in/social",
+                {
+                    method: "POST",
+                    headers: { origin: "https://repo.test", "content-type": "application/json" },
+                    body: JSON.stringify({
+                        provider: "oidc",
+                        callbackURL: "https://repo.test/test",
+                    }),
+                },
+                {
+                    ...env,
+                    OIDC_DISCOVERY_URL: "https://idp.test/.well-known/openid-configuration",
+                    OIDC_CLIENT_ID: "test-client",
+                    OIDC_CLIENT_SECRET: "test-client-secret",
+                },
+            );
+            const result = await json<{ url: string; redirect: boolean }>(response);
+            const url = new URL(result.url);
+            expect(result.redirect).toBe(true);
+            expect(url.origin + url.pathname).toBe("https://idp.test/authorize");
+            expect(url.searchParams.get("client_id")).toBe("test-client");
+            expect(url.searchParams.get("redirect_uri")).toBe(
+                "https://repo.test/api/auth/callback/oidc",
+            );
+            expect(url.searchParams.get("code_challenge_method")).toBe("S256");
+            expect(url.searchParams.get("code_challenge")).toBeTruthy();
+        } finally {
+            discovery.mockRestore();
+        }
+    });
+    it("challenges Maven downloads without opening Basic auth dialogs for console APIs", async () => {
+        const download = await request(
+            "/maven/test/releases/com/acme/demo/1.0/demo-1.0.pom",
+            "GET",
+            undefined,
+            "",
+        );
+        expect(download.status).toBe(401);
+        expect(download.headers.get("www-authenticate")).toBe('Basic realm="Maven R2"');
+        const files = await request(
+            "/api/accounts/test/repositories/releases/files",
+            "GET",
+            undefined,
+            "",
+        );
+        expect(files.status).toBe(401);
+        expect(files.headers.has("www-authenticate")).toBe(false);
+        expect(await files.json()).toMatchObject({ error: "Read access required" });
+    });
     it("uses real Better Auth sessions and protects the last owner", async () => {
         const browser = await browserUser();
         expect(await json(await browser("/api/me"))).toMatchObject({

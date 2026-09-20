@@ -40,7 +40,8 @@ app.use("*", async (c, next) => {
     c.set("requestId", crypto.randomUUID());
     c.header("x-request-id", c.get("requestId"));
     await next();
-    if (c.res.status === 401) c.header("www-authenticate", 'Basic realm="Maven R2"');
+    if (c.res.status === 401 && c.req.path.startsWith("/maven/"))
+        c.header("www-authenticate", 'Basic realm="Maven R2"');
 });
 app.use("/api/*", async (c, next) => {
     if (!["GET", "HEAD", "OPTIONS"].includes(c.req.method)) {

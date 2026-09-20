@@ -252,9 +252,25 @@ export function RepositoryBrowser() {
     const gav = !query && pom ? pom.path.split("/") : null;
     const coordinate =
         gav && gav.length >= 4 ? `${gav.slice(0, -3).join(".")}:${gav.at(-3)}:${gav.at(-2)}` : null;
+    const repositorySnippet = [
+        "repositories {",
+        "    maven {",
+        `        url = uri("${endpoint}")`,
+        ...(location.protocol === "http:" ? ["        isAllowInsecureProtocol = true"] : []),
+        ...(repo?.visibility === "private"
+            ? [
+                  "        credentials {",
+                  '            username = "maven-r2"',
+                  '            password = providers.environmentVariable("MAVEN_R2_READ_TOKEN").get()',
+                  "        }",
+              ]
+            : []),
+        "    }",
+        "}",
+    ].join("\n");
     const snippet = coordinate
-        ? `repositories {\n    maven { url = uri("${endpoint}") }\n}\ndependencies {\n    implementation("${coordinate}")\n}`
-        : `repositories {\n    maven { url = uri("${endpoint}") }\n}`;
+        ? `${repositorySnippet}\ndependencies {\n    implementation("${coordinate}")\n}`
+        : repositorySnippet;
 
     return (
         <>
@@ -303,7 +319,10 @@ export function RepositoryBrowser() {
                         aria-label="Search artifact paths"
                         placeholder="Search paths…"
                         value={search}
-                        onChange={(e) => setSearch(e.target.value)}
+                        onChange={(e) => {
+                            setSearch(e.target.value);
+                            setParams(prefix ? { prefix } : {}, { replace: true });
+                        }}
                     />
                 </div>
                 <ErrorNotice error={files.error} />
@@ -344,7 +363,7 @@ export function RepositoryBrowser() {
                                     {row.file && (
                                         <a
                                             href={`${endpoint}/${row.file.path}`}
-                                            download
+                                            download={row.file.path.split("/").at(-1)}
                                             aria-label={`Download ${row.name}`}
                                             {...stylex.props(ui.quietLink)}
                                         >
@@ -369,6 +388,12 @@ export function RepositoryBrowser() {
                     {coordinate ? "Use this version" : "Add to your build"}
                 </h2>
                 <Code>{snippet}</Code>
+                {repo?.visibility === "private" && (
+                    <p {...stylex.props(ui.p, ui.muted)}>
+                        Set <code>MAVEN_R2_READ_TOKEN</code> to a token with read access to this
+                        repository and artifact namespace.
+                    </p>
+                )}
                 {coordinate && admin && (
                     <Button onClick={() => setDeleting(true)}>Delete version</Button>
                 )}
@@ -461,7 +486,7 @@ export function RepositoryBrowser() {
                     <div {...stylex.props(ui.footer)}>
                         <a
                             href={`${endpoint}/${selected.path}`}
-                            download
+                            download={selected.path.split("/").at(-1)}
                             {...stylex.props(ui.button, ui.primary)}
                         >
                             Download

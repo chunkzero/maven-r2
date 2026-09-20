@@ -1,3 +1,4 @@
+import * as stylex from "@stylexjs/stylex";
 import { useState } from "react";
 import { Link, useParams } from "react-router";
 import { z } from "zod";
@@ -10,7 +11,7 @@ import {
 import { api, ok, useAction, useApi } from "./api";
 import { useWorkspace } from "./app";
 import {
-    Badge,
+    Button,
     bytes,
     Code,
     Confirm,
@@ -18,9 +19,14 @@ import {
     Empty,
     ErrorNotice,
     Field,
+    Input,
     Loading,
     Modal,
     PageHeader,
+    Select,
+    Table,
+    Td,
+    ui,
 } from "./components";
 
 export function Members() {
@@ -45,137 +51,105 @@ export function Members() {
         api(`${base}/members/${id}`, ok, "PATCH", { role }),
     );
     const [now] = useState(Date.now);
+    const roles = ["reader", "publisher", "admin", ...(account.role === "owner" ? ["owner"] : [])];
     return (
         <>
             <PageHeader title="Members">
-                <button className="button primary" onClick={() => setInviting(true)}>
+                <Button primary onClick={() => setInviting(true)}>
                     Invite member
-                </button>
+                </Button>
             </PageHeader>
             <ErrorNotice error={members.error ?? changeRole.error} />
             {members.isPending ? (
                 <Loading />
             ) : members.data?.length ? (
-                <div className="scroll">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Member</th>
-                                <th>Role</th>
-                                <th />
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {members.data.map((member) => (
-                                <tr key={member.userId}>
-                                    <td>
-                                        <strong>{member.name}</strong>{" "}
-                                        <span className="muted">{member.email}</span>
-                                    </td>
-                                    <td>
-                                        {member.role === "owner" ? (
-                                            "owner"
-                                        ) : (
-                                            <select
-                                                aria-label={`Role for ${member.name}`}
-                                                value={member.role}
-                                                disabled={changeRole.isPending}
-                                                onChange={(e) =>
-                                                    changeRole.mutate({
-                                                        id: member.userId,
-                                                        role: e.target.value,
-                                                    })
-                                                }
-                                            >
-                                                {[
-                                                    "reader",
-                                                    "publisher",
-                                                    "admin",
-                                                    ...(account.role === "owner" ? ["owner"] : []),
-                                                ].map((role) => (
-                                                    <option key={role} value={role}>
-                                                        {role}
-                                                    </option>
-                                                ))}
-                                            </select>
-                                        )}
-                                    </td>
-                                    <td>
-                                        <button
-                                            className="button small danger"
-                                            aria-label={`Remove ${member.name}`}
-                                            onClick={() =>
-                                                setRemoving({
-                                                    kind: "members",
-                                                    id: member.userId,
-                                                    name: member.name,
-                                                })
-                                            }
-                                        >
-                                            Remove
-                                        </button>
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
+                <Table head={["Member", "Role", ""]}>
+                    {members.data.map((member) => (
+                        <tr key={member.userId}>
+                            <Td>
+                                <strong>{member.name}</strong>{" "}
+                                <span {...stylex.props(ui.muted)}>{member.email}</span>
+                            </Td>
+                            <Td>
+                                {member.role === "owner" && account.role !== "owner" ? (
+                                    "owner"
+                                ) : (
+                                    <Select
+                                        sx={ui.auto}
+                                        aria-label={`Role for ${member.name}`}
+                                        value={member.role}
+                                        disabled={changeRole.isPending}
+                                        onChange={(e) =>
+                                            changeRole.mutate({
+                                                id: member.userId,
+                                                role: e.target.value,
+                                            })
+                                        }
+                                    >
+                                        {roles.map((role) => (
+                                            <option key={role} value={role}>
+                                                {role}
+                                            </option>
+                                        ))}
+                                    </Select>
+                                )}
+                            </Td>
+                            <Td right>
+                                <Button
+                                    small
+                                    aria-label={`Remove ${member.name}`}
+                                    onClick={() =>
+                                        setRemoving({
+                                            kind: "members",
+                                            id: member.userId,
+                                            name: member.name,
+                                        })
+                                    }
+                                >
+                                    Remove
+                                </Button>
+                            </Td>
+                        </tr>
+                    ))}
+                </Table>
             ) : (
                 <Empty>No members yet.</Empty>
             )}
             <section>
-                <div className="page-header">
-                    <h2>Service accounts</h2>
-                    <button className="button" onClick={() => setAdding(true)}>
-                        New service account
-                    </button>
+                <div {...stylex.props(ui.pageHeader)}>
+                    <h2 {...stylex.props(ui.h2)}>Service accounts</h2>
+                    <Button onClick={() => setAdding(true)}>New service account</Button>
                 </div>
                 <ErrorNotice error={services.error} />
                 {services.data?.length ? (
-                    <div className="scroll">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>Service</th>
-                                    <th>Role</th>
-                                    <th>Status</th>
-                                    <th />
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {services.data.map((service) => (
-                                    <tr key={service.id}>
-                                        <td>
-                                            <strong>{service.name}</strong>
-                                        </td>
-                                        <td>{service.role}</td>
-                                        <td>
-                                            <Badge tone={service.disabled ? "neutral" : "green"}>
-                                                {service.disabled ? "Disabled" : "Active"}
-                                            </Badge>
-                                        </td>
-                                        <td>
-                                            {!service.disabled && (
-                                                <button
-                                                    className="button small danger"
-                                                    aria-label={`Disable ${service.name}`}
-                                                    onClick={() =>
-                                                        setRemoving({
-                                                            kind: "services",
-                                                            id: service.id,
-                                                            name: service.name,
-                                                        })
-                                                    }
-                                                >
-                                                    Disable
-                                                </button>
-                                            )}
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
+                    <Table head={["Service", "Role", "Status", ""]}>
+                        {services.data.map((service) => (
+                            <tr key={service.id}>
+                                <Td>
+                                    <strong>{service.name}</strong>
+                                </Td>
+                                <Td>{service.role}</Td>
+                                <Td>{service.disabled ? "Disabled" : "Active"}</Td>
+                                <Td right>
+                                    {!service.disabled && (
+                                        <Button
+                                            small
+                                            aria-label={`Disable ${service.name}`}
+                                            onClick={() =>
+                                                setRemoving({
+                                                    kind: "services",
+                                                    id: service.id,
+                                                    name: service.name,
+                                                })
+                                            }
+                                        >
+                                            Disable
+                                        </Button>
+                                    )}
+                                </Td>
+                            </tr>
+                        ))}
+                    </Table>
                 ) : (
                     <Empty>
                         No service accounts yet. Create one, then issue it a scoped token for CI.
@@ -184,48 +158,35 @@ export function Members() {
             </section>
             {!!invitations.data?.length && (
                 <section>
-                    <h2>Invitations</h2>
+                    <h2 {...stylex.props(ui.h2)}>Invitations</h2>
                     <ErrorNotice error={revoke.error} />
-                    <div className="scroll">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>Email</th>
-                                    <th>Role</th>
-                                    <th>Status</th>
-                                    <th>Expires</th>
-                                    <th />
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {invitations.data.map((invite) => (
-                                    <tr key={invite.id}>
-                                        <td>{invite.email}</td>
-                                        <td>{invite.role}</td>
-                                        <td>
-                                            {invite.accepted
-                                                ? "Accepted"
-                                                : invite.expiresAt < now
-                                                  ? "Expired"
-                                                  : "Pending"}
-                                        </td>
-                                        <td className="muted">{date(invite.expiresAt)}</td>
-                                        <td>
-                                            {!invite.accepted && invite.expiresAt > now && (
-                                                <button
-                                                    className="button small"
-                                                    disabled={revoke.isPending}
-                                                    onClick={() => revoke.mutate(invite.id)}
-                                                >
-                                                    Revoke
-                                                </button>
-                                            )}
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
+                    <Table head={["Email", "Role", "Status", "Expires", ""]}>
+                        {invitations.data.map((invite) => (
+                            <tr key={invite.id}>
+                                <Td>{invite.email}</Td>
+                                <Td>{invite.role}</Td>
+                                <Td>
+                                    {invite.accepted
+                                        ? "Accepted"
+                                        : invite.expiresAt < now
+                                          ? "Expired"
+                                          : "Pending"}
+                                </Td>
+                                <Td muted>{date(invite.expiresAt)}</Td>
+                                <Td right>
+                                    {!invite.accepted && invite.expiresAt > now && (
+                                        <Button
+                                            small
+                                            disabled={revoke.isPending}
+                                            onClick={() => revoke.mutate(invite.id)}
+                                        >
+                                            Revoke
+                                        </Button>
+                                    )}
+                                </Td>
+                            </tr>
+                        ))}
+                    </Table>
                 </section>
             )}
             {inviting && <InviteForm close={() => setInviting(false)} />}
@@ -265,15 +226,15 @@ function InviteForm({ close }: { close: () => void }) {
     if (url)
         return (
             <Modal title="Invitation ready" onClose={close}>
-                <p>
+                <p {...stylex.props(ui.p)}>
                     Send this link to <strong>{email}</strong>. They must sign in with that verified
                     email address. It expires in seven days.
                 </p>
                 <Code>{url}</Code>
-                <div className="form-footer">
-                    <button className="button primary" onClick={close}>
+                <div {...stylex.props(ui.footer)}>
+                    <Button primary onClick={close}>
                         Done
-                    </button>
+                    </Button>
                 </div>
             </Modal>
         );
@@ -286,7 +247,7 @@ function InviteForm({ close }: { close: () => void }) {
                 }}
             >
                 <Field label="Email address">
-                    <input
+                    <Input
                         type="email"
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
@@ -294,20 +255,20 @@ function InviteForm({ close }: { close: () => void }) {
                     />
                 </Field>
                 <Field label="Role">
-                    <select value={role} onChange={(e) => setRole(e.target.value)}>
+                    <Select value={role} onChange={(e) => setRole(e.target.value)}>
                         <option value="reader">Reader</option>
                         <option value="publisher">Publisher</option>
                         <option value="admin">Administrator</option>
-                    </select>
+                    </Select>
                 </Field>
                 <ErrorNotice error={invite.error} />
-                <div className="form-footer">
-                    <button type="button" className="button" onClick={close}>
+                <div {...stylex.props(ui.footer)}>
+                    <Button type="button" onClick={close}>
                         Cancel
-                    </button>
-                    <button className="button primary" disabled={invite.isPending}>
+                    </Button>
+                    <Button primary disabled={invite.isPending}>
                         Create invitation
-                    </button>
+                    </Button>
                 </div>
             </form>
         </Modal>
@@ -334,7 +295,7 @@ function ServiceForm({ close }: { close: () => void }) {
                 }}
             >
                 <Field label="Name">
-                    <input
+                    <Input
                         required
                         maxLength={100}
                         value={name}
@@ -342,19 +303,19 @@ function ServiceForm({ close }: { close: () => void }) {
                     />
                 </Field>
                 <Field label="Maximum role">
-                    <select value={role} onChange={(e) => setRole(e.target.value)}>
+                    <Select value={role} onChange={(e) => setRole(e.target.value)}>
                         <option value="publisher">Publisher</option>
                         <option value="reader">Reader</option>
-                    </select>
+                    </Select>
                 </Field>
                 <ErrorNotice error={create.error} />
-                <div className="form-footer">
-                    <button type="button" className="button" onClick={close}>
+                <div {...stylex.props(ui.footer)}>
+                    <Button type="button" onClick={close}>
                         Cancel
-                    </button>
-                    <button className="button primary" disabled={create.isPending}>
+                    </Button>
+                    <Button primary disabled={create.isPending}>
                         Create service account
-                    </button>
+                    </Button>
                 </div>
             </form>
         </Modal>
@@ -370,28 +331,20 @@ export function Audit() {
             {events.isPending ? (
                 <Loading />
             ) : events.data?.length ? (
-                <div className="scroll">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>When</th>
-                                <th>Action</th>
-                                <th>Target</th>
-                                <th>Actor</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {events.data.map((event) => (
-                                <tr key={event.id}>
-                                    <td className="muted">{date(event.createdAt)}</td>
-                                    <td>{event.action}</td>
-                                    <td className="mono">{event.target}</td>
-                                    <td className="mono muted">{event.actor}</td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
+                <Table head={["When", "Action", "Target", "Actor"]}>
+                    {events.data.map((event) => (
+                        <tr key={event.id}>
+                            <Td muted>{date(event.createdAt)}</Td>
+                            <Td>{event.action}</Td>
+                            <Td>
+                                <span {...stylex.props(ui.mono)}>{event.target}</span>
+                            </Td>
+                            <Td muted>
+                                <span {...stylex.props(ui.mono)}>{event.actor}</span>
+                            </Td>
+                        </tr>
+                    ))}
+                </Table>
             ) : (
                 <Empty>No activity yet.</Empty>
             )}
@@ -413,16 +366,16 @@ export function AccountSettings() {
         <>
             <PageHeader title="Settings" />
             <section>
-                <h2>Storage</h2>
-                <progress max={account.maxBytes} value={used} />
-                <p className="muted">
+                <h2 {...stylex.props(ui.h2)}>Storage</h2>
+                <progress {...stylex.props(ui.progress)} max={account.maxBytes} value={used} />
+                <p {...stylex.props(ui.p, ui.muted)}>
                     {bytes(account.usedBytes)} stored · {bytes(account.reservedBytes)} staged ·{" "}
                     {bytes(account.maxBytes)} quota
                 </p>
             </section>
             {user?.admin && (
                 <section>
-                    <h2>Instance administration</h2>
+                    <h2 {...stylex.props(ui.h2)}>Instance administration</h2>
                     <form
                         onSubmit={(e) => {
                             e.preventDefault();
@@ -430,7 +383,7 @@ export function AccountSettings() {
                         }}
                     >
                         <Field label="Storage quota (GiB)">
-                            <input
+                            <Input
                                 type="number"
                                 min={0.01}
                                 step={0.01}
@@ -439,7 +392,7 @@ export function AccountSettings() {
                                 required
                             />
                         </Field>
-                        <label className="check">
+                        <label {...stylex.props(ui.check)}>
                             <input
                                 type="checkbox"
                                 checked={suspended}
@@ -448,11 +401,11 @@ export function AccountSettings() {
                             Suspend this workspace
                         </label>
                         <ErrorNotice error={save.error} />
-                        <div className="form-footer">
-                            {save.isSuccess && <span className="muted">Saved</span>}
-                            <button className="button primary" disabled={save.isPending}>
+                        <div {...stylex.props(ui.footer)}>
+                            {save.isSuccess && <span {...stylex.props(ui.muted)}>Saved</span>}
+                            <Button primary disabled={save.isPending}>
                                 Save
-                            </button>
+                            </Button>
                         </div>
                     </form>
                 </section>
@@ -467,24 +420,28 @@ export function Invite({ user }: { user: { email: string } | null }) {
         <>
             <PageHeader title="Workspace invitation" />
             {!user ? (
-                <p>Sign in with the email address that received this invitation, then reload.</p>
+                <p {...stylex.props(ui.p)}>
+                    Sign in with the email address that received this invitation, then reload.
+                </p>
             ) : accept.isSuccess ? (
-                <p>
-                    You have joined. <Link to="/">Open your workspace</Link>.
+                <p {...stylex.props(ui.p)}>
+                    You have joined.{" "}
+                    <Link to="/" {...stylex.props(ui.link)}>
+                        Open your workspace
+                    </Link>
+                    .
                 </p>
             ) : (
                 <>
-                    <p>
+                    <p {...stylex.props(ui.p)}>
                         Accept this invitation as <strong>{user.email}</strong>.
                     </p>
                     <ErrorNotice error={accept.error} />
-                    <button
-                        className="button primary"
-                        disabled={accept.isPending}
-                        onClick={() => accept.mutate()}
-                    >
-                        Accept invitation
-                    </button>
+                    <div>
+                        <Button primary disabled={accept.isPending} onClick={() => accept.mutate()}>
+                            Accept invitation
+                        </Button>
+                    </div>
                 </>
             )}
         </>

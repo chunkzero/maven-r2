@@ -1,3 +1,4 @@
+import * as stylex from "@stylexjs/stylex";
 import { useState } from "react";
 import { z } from "zod";
 import {
@@ -11,15 +12,22 @@ import { api, ok, useAction, useApi } from "./api";
 import { useWorkspace } from "./app";
 import {
     Badge,
+    Button,
     Code,
     Confirm,
     date,
     Empty,
     ErrorNotice,
     Field,
+    Input,
     Loading,
     Modal,
     PageHeader,
+    Select,
+    Table,
+    Td,
+    Textarea,
+    ui,
 } from "./components";
 
 type Token = z.infer<typeof tokenSchema>;
@@ -44,11 +52,11 @@ export function Tokens() {
     return (
         <>
             <PageHeader title="Tokens">
-                <button className="button primary" onClick={() => setCreating(true)}>
+                <Button primary onClick={() => setCreating(true)}>
                     Create token
-                </button>
+                </Button>
             </PageHeader>
-            <p className="muted">
+            <p {...stylex.props(ui.p, ui.muted)}>
                 Tokens are scoped to a repository and optional path prefixes. Use a service account
                 for CI so access does not depend on a person.
             </p>
@@ -56,62 +64,45 @@ export function Tokens() {
             {tokens.isPending ? (
                 <Loading />
             ) : tokens.data?.length ? (
-                <div className="scroll">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Token</th>
-                                <th>Scope</th>
-                                <th>Last used</th>
-                                <th>Expires</th>
-                                <th />
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {tokens.data.map((token) => (
-                                <tr key={token.id}>
-                                    <td>
-                                        <strong>{token.name}</strong>{" "}
-                                        <span className="mono muted">{token.prefix}…</span>{" "}
-                                        {token.revoked && <Badge>Revoked</Badge>}
-                                    </td>
-                                    <td>
-                                        {token.scopes.map((scope, index) => (
-                                            <div key={index}>
-                                                <span className="mono">
-                                                    {scope.repository}/
-                                                    {scope.prefixes
-                                                        .map((prefix) => prefix || "**")
-                                                        .join(", ")}
-                                                </span>{" "}
-                                                <span className="muted">
-                                                    {scope.actions.join(", ")}
-                                                </span>
-                                            </div>
-                                        ))}
-                                    </td>
-                                    <td className="muted">
-                                        {token.lastUsedAt ? date(token.lastUsedAt) : "Never"}
-                                    </td>
-                                    <td className="muted">
-                                        {token.expiresAt ? date(token.expiresAt) : "Never"}
-                                    </td>
-                                    <td>
-                                        {!token.revoked && (
-                                            <button
-                                                className="button small danger"
-                                                aria-label={`Revoke ${token.name}`}
-                                                onClick={() => setRevoking(token)}
-                                            >
-                                                Revoke
-                                            </button>
-                                        )}
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
+                <Table head={["Token", "Scope", "Last used", "Expires", ""]}>
+                    {tokens.data.map((token) => (
+                        <tr key={token.id}>
+                            <Td>
+                                <strong>{token.name}</strong>{" "}
+                                <span {...stylex.props(ui.mono, ui.muted)}>{token.prefix}…</span>{" "}
+                                {token.revoked && <Badge>Revoked</Badge>}
+                            </Td>
+                            <Td>
+                                {token.scopes.map((scope, index) => (
+                                    <div key={index}>
+                                        <span {...stylex.props(ui.mono)}>
+                                            {scope.repository}/
+                                            {scope.prefixes
+                                                .map((prefix) => prefix || "**")
+                                                .join(", ")}
+                                        </span>{" "}
+                                        <span {...stylex.props(ui.muted)}>
+                                            {scope.actions.join(", ")}
+                                        </span>
+                                    </div>
+                                ))}
+                            </Td>
+                            <Td muted>{token.lastUsedAt ? date(token.lastUsedAt) : "Never"}</Td>
+                            <Td muted>{token.expiresAt ? date(token.expiresAt) : "Never"}</Td>
+                            <Td right>
+                                {!token.revoked && (
+                                    <Button
+                                        small
+                                        aria-label={`Revoke ${token.name}`}
+                                        onClick={() => setRevoking(token)}
+                                    >
+                                        Revoke
+                                    </Button>
+                                )}
+                            </Td>
+                        </tr>
+                    ))}
+                </Table>
             ) : (
                 <Empty>No tokens yet.</Empty>
             )}
@@ -183,16 +174,16 @@ function CreateToken({ close }: { close: () => void }) {
     if (secret)
         return (
             <Modal title="Your token is ready" onClose={close}>
-                <p>Copy it now. It is shown only once.</p>
+                <p {...stylex.props(ui.p)}>Copy it now. It is shown only once.</p>
                 <Code>{secret}</Code>
-                <p className="muted">
+                <p {...stylex.props(ui.p, ui.muted)}>
                     Store it as <code>MAVEN_R2_TOKEN</code> in CI, or pass it to{" "}
                     <code>maven-r2 login</code>.
                 </p>
-                <div className="form-footer">
-                    <button className="button primary" onClick={close}>
+                <div {...stylex.props(ui.footer)}>
+                    <Button primary onClick={close}>
                         Done
-                    </button>
+                    </Button>
                 </div>
             </Modal>
         );
@@ -205,17 +196,17 @@ function CreateToken({ close }: { close: () => void }) {
                 }}
             >
                 <Field label="Token name">
-                    <input
+                    <Input
                         required
                         value={name}
                         onChange={(e) => setName(e.target.value)}
                         maxLength={100}
                     />
                 </Field>
-                <div className="form-row">
+                <div {...stylex.props(ui.row)}>
                     {admin && (
                         <Field label="Owner">
-                            <select value={service} onChange={(e) => setService(e.target.value)}>
+                            <Select value={service} onChange={(e) => setService(e.target.value)}>
                                 <option value="">My account</option>
                                 {services.data
                                     ?.filter((service) => !service.disabled)
@@ -224,11 +215,11 @@ function CreateToken({ close }: { close: () => void }) {
                                             {service.name}
                                         </option>
                                     ))}
-                            </select>
+                            </Select>
                         </Field>
                     )}
                     <Field label="Repository">
-                        <select
+                        <Select
                             required
                             value={repo}
                             onChange={(e) => setRepository(e.target.value)}
@@ -238,23 +229,23 @@ function CreateToken({ close }: { close: () => void }) {
                                     {repo.name}
                                 </option>
                             ))}
-                        </select>
+                        </Select>
                     </Field>
                 </div>
                 <Field
                     label="Allowed namespaces or paths"
                     hint="One path prefix per line, such as com/acme/sdk. Leave blank for the whole repository."
                 >
-                    <textarea
+                    <Textarea
                         value={prefixes}
                         onChange={(e) => setPrefixes(e.target.value)}
                         rows={3}
                     />
                 </Field>
-                <fieldset>
-                    <legend>Allowed operations</legend>
+                <fieldset {...stylex.props(ui.fieldset)}>
+                    <legend {...stylex.props(ui.legend)}>Allowed operations</legend>
                     {available.map((permission) => (
-                        <label key={permission}>
+                        <label key={permission} {...stylex.props(ui.check)}>
                             <input
                                 type="checkbox"
                                 checked={permissions.includes(permission)}
@@ -271,24 +262,21 @@ function CreateToken({ close }: { close: () => void }) {
                     ))}
                 </fieldset>
                 <Field label="Expires after">
-                    <select value={days} onChange={(e) => setDays(e.target.value)}>
+                    <Select value={days} onChange={(e) => setDays(e.target.value)}>
                         <option value="30">30 days</option>
                         <option value="90">90 days</option>
                         <option value="365">1 year</option>
                         <option value="never">Never</option>
-                    </select>
+                    </Select>
                 </Field>
                 <ErrorNotice error={create.error} />
-                <div className="form-footer">
-                    <button type="button" className="button" onClick={close}>
+                <div {...stylex.props(ui.footer)}>
+                    <Button type="button" onClick={close}>
                         Cancel
-                    </button>
-                    <button
-                        className="button primary"
-                        disabled={create.isPending || !repo || !chosen.length}
-                    >
+                    </Button>
+                    <Button primary disabled={create.isPending || !repo || !chosen.length}>
                         Create token
-                    </button>
+                    </Button>
                 </div>
             </form>
         </Modal>

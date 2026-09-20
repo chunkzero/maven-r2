@@ -1,3 +1,4 @@
+import * as stylex from "@stylexjs/stylex";
 import { useDeferredValue, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import { Download, File, Folder } from "lucide-react";
@@ -12,6 +13,7 @@ import { api, ok, useAction, useApi } from "./api";
 import { useWorkspace } from "./app";
 import {
     Badge,
+    Button,
     bytes,
     Code,
     Confirm,
@@ -19,10 +21,20 @@ import {
     Empty,
     ErrorNotice,
     Field,
+    Input,
     Loading,
     Modal,
     PageHeader,
+    Select,
+    Table,
+    Td,
+    ui,
 } from "./components";
+
+const styles = stylex.create({
+    crumbs: { display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6 },
+    icon: { verticalAlign: -3 },
+});
 
 export function Repositories() {
     const { account } = useWorkspace(),
@@ -33,13 +45,13 @@ export function Repositories() {
         <>
             <PageHeader title="Repositories">
                 {admin && (
-                    <button className="button primary" onClick={() => setCreating(true)}>
+                    <Button primary onClick={() => setCreating(true)}>
                         New repository
-                    </button>
+                    </Button>
                 )}
             </PageHeader>
             {account.role && (
-                <p className="muted">
+                <p {...stylex.props(ui.p, ui.muted)}>
                     {bytes(account.usedBytes)} stored · {bytes(account.reservedBytes)} staged ·{" "}
                     {bytes(account.maxBytes)} quota
                 </p>
@@ -48,39 +60,25 @@ export function Repositories() {
             {repos.isPending ? (
                 <Loading />
             ) : repos.data?.length ? (
-                <div className="scroll">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Repository</th>
-                                <th>Visibility</th>
-                                <th>Policy</th>
-                                <th>Snapshot retention</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {repos.data.map((repo) => (
-                                <tr key={repo.id}>
-                                    <td>
-                                        <Link to={`repositories/${repo.slug}`}>
-                                            <strong>{repo.name}</strong>{" "}
-                                            <span className="mono muted">
-                                                {account.slug}/{repo.slug}
-                                            </span>
-                                        </Link>
-                                    </td>
-                                    <td>{repo.visibility}</td>
-                                    <td>{repo.policy}</td>
-                                    <td>
-                                        {repo.retentionDays
-                                            ? `${repo.retentionDays} days`
-                                            : "Keep all"}
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
+                <Table head={["Repository", "Visibility", "Policy", "Snapshot retention"]}>
+                    {repos.data.map((repo) => (
+                        <tr key={repo.id}>
+                            <Td>
+                                <Link to={`repositories/${repo.slug}`} {...stylex.props(ui.link)}>
+                                    <strong>{repo.name}</strong>
+                                </Link>{" "}
+                                <span {...stylex.props(ui.mono, ui.muted)}>
+                                    {account.slug}/{repo.slug}
+                                </span>
+                            </Td>
+                            <Td>{repo.visibility}</Td>
+                            <Td>{repo.policy}</Td>
+                            <Td>
+                                {repo.retentionDays ? `${repo.retentionDays} days` : "Keep all"}
+                            </Td>
+                        </tr>
+                    ))}
+                </Table>
             ) : (
                 <Empty>No repositories yet.</Empty>
             )}
@@ -123,7 +121,7 @@ function RepositoryForm({ close, repository }: { close: () => void; repository?:
                 }}
             >
                 <Field label="Name">
-                    <input
+                    <Input
                         value={name}
                         onChange={(e) => setName(e.target.value)}
                         required
@@ -132,7 +130,7 @@ function RepositoryForm({ close, repository }: { close: () => void; repository?:
                 </Field>
                 {!repository && (
                     <Field label="URL slug" hint="Lowercase letters, numbers, and hyphens.">
-                        <input
+                        <Input
                             value={slug}
                             onChange={(e) => setSlug(e.target.value)}
                             required
@@ -140,30 +138,30 @@ function RepositoryForm({ close, repository }: { close: () => void; repository?:
                         />
                     </Field>
                 )}
-                <div className="form-row">
+                <div {...stylex.props(ui.row)}>
                     <Field label="Visibility">
-                        <select
+                        <Select
                             value={visibility}
                             onChange={(e) => setVisibility(e.target.value as typeof visibility)}
                         >
                             <option value="private">Private</option>
                             <option value="public">Public</option>
-                        </select>
+                        </Select>
                     </Field>
                     <Field label="Version policy">
-                        <select
+                        <Select
                             value={policy}
                             onChange={(e) => setPolicy(e.target.value as typeof policy)}
                         >
                             <option value="releases">Releases</option>
                             <option value="snapshots">Snapshots</option>
                             <option value="mixed">Releases and snapshots</option>
-                        </select>
+                        </Select>
                     </Field>
                 </div>
-                <div className="form-row">
+                <div {...stylex.props(ui.row)}>
                     <Field label="Maximum artifact size (MiB)">
-                        <input
+                        <Input
                             type="number"
                             value={limit}
                             onChange={(e) => setLimit(Number(e.target.value))}
@@ -173,7 +171,7 @@ function RepositoryForm({ close, repository }: { close: () => void; repository?:
                         />
                     </Field>
                     <Field label="Snapshot retention (days)" hint="0 keeps every snapshot.">
-                        <input
+                        <Input
                             type="number"
                             value={retention}
                             onChange={(e) => setRetention(Number(e.target.value))}
@@ -184,13 +182,13 @@ function RepositoryForm({ close, repository }: { close: () => void; repository?:
                     </Field>
                 </div>
                 <ErrorNotice error={save.error} />
-                <div className="form-footer">
-                    <button type="button" className="button" onClick={close}>
+                <div {...stylex.props(ui.footer)}>
+                    <Button type="button" onClick={close}>
                         Cancel
-                    </button>
-                    <button className="button primary" disabled={save.isPending}>
+                    </Button>
+                    <Button primary disabled={save.isPending}>
                         {repository ? "Save changes" : "Create repository"}
-                    </button>
+                    </Button>
                 </div>
             </form>
         </Modal>
@@ -263,18 +261,17 @@ export function RepositoryBrowser() {
             <PageHeader
                 title={
                     <>
-                        <Link to={`/${account.slug}`}>Repositories</Link> / {repo?.name ?? slug}
+                        <Link to={`/${account.slug}`} {...stylex.props(ui.quietLink)}>
+                            Repositories
+                        </Link>{" "}
+                        / {repo?.name ?? slug}
                     </>
                 }
             >
-                {admin && repo && (
-                    <button className="button" onClick={() => setSettings(true)}>
-                        Settings
-                    </button>
-                )}
+                {admin && repo && <Button onClick={() => setSettings(true)}>Settings</Button>}
             </PageHeader>
             {repo && (
-                <p className="muted">
+                <p {...stylex.props(ui.p, ui.muted)}>
                     {repo.visibility} · {repo.policy} · files up to {bytes(repo.maxFileBytes)} ·{" "}
                     {repo.retentionDays
                         ? `snapshots kept ${repo.retentionDays} days`
@@ -283,19 +280,25 @@ export function RepositoryBrowser() {
             )}
             <Code>{endpoint}</Code>
             <section>
-                <div className="toolbar">
-                    <nav className="crumbs" aria-label="Path">
-                        <button onClick={() => go("")}>{slug}</button>
+                <div {...stylex.props(ui.toolbar)}>
+                    <nav {...stylex.props(styles.crumbs)} aria-label="Path">
+                        <button {...stylex.props(ui.textButton)} onClick={() => go("")}>
+                            {slug}
+                        </button>
                         {parts.map((part, index) => (
-                            <span key={index}>
-                                {" / "}
-                                <button onClick={() => go(parts.slice(0, index + 1).join("/"))}>
+                            <span key={index} {...stylex.props(styles.crumbs)}>
+                                <span {...stylex.props(ui.muted)}>/</span>
+                                <button
+                                    {...stylex.props(ui.textButton)}
+                                    onClick={() => go(parts.slice(0, index + 1).join("/"))}
+                                >
                                     {part}
                                 </button>
                             </span>
                         ))}
                     </nav>
-                    <input
+                    <Input
+                        sx={ui.auto}
                         type="search"
                         aria-label="Search artifact paths"
                         placeholder="Search paths…"
@@ -307,148 +310,102 @@ export function RepositoryBrowser() {
                 {files.isPending ? (
                     <Loading />
                 ) : sorted.length ? (
-                    <div className="scroll">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>Name</th>
-                                    <th>Size</th>
-                                    <th>Published</th>
-                                    <th />
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {prefix && !query && (
-                                    <tr>
-                                        <td colSpan={4}>
-                                            <button
-                                                className="link"
-                                                onClick={() => go(parts.slice(0, -1).join("/"))}
-                                            >
-                                                <Folder size={15} /> ..
-                                            </button>
-                                        </td>
-                                    </tr>
-                                )}
-                                {sorted.map((row) => (
-                                    <tr key={row.name}>
-                                        <td>
-                                            <button
-                                                className="link"
-                                                onClick={() =>
-                                                    row.file
-                                                        ? setSelected(row.file)
-                                                        : go(
-                                                              [prefix, row.name]
-                                                                  .filter(Boolean)
-                                                                  .join("/"),
-                                                          )
-                                                }
-                                            >
-                                                {row.folder ? (
-                                                    <Folder size={15} />
-                                                ) : (
-                                                    <File size={15} />
-                                                )}{" "}
-                                                {row.name}
-                                            </button>
-                                        </td>
-                                        <td className="muted">
-                                            {row.file && bytes(row.file.size)}
-                                        </td>
-                                        <td className="muted">
-                                            {row.file && date(row.file.updatedAt)}
-                                        </td>
-                                        <td>
-                                            {row.file && (
-                                                <a
-                                                    href={`${endpoint}/${row.file.path}`}
-                                                    download
-                                                    aria-label={`Download ${row.name}`}
-                                                >
-                                                    <Download size={15} />
-                                                </a>
-                                            )}
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
+                    <Table head={["Name", "Size", "Published", ""]}>
+                        {prefix && !query && (
+                            <tr>
+                                <Td colSpan={4}>
+                                    <button
+                                        {...stylex.props(ui.textButton)}
+                                        onClick={() => go(parts.slice(0, -1).join("/"))}
+                                    >
+                                        <Folder size={15} /> ..
+                                    </button>
+                                </Td>
+                            </tr>
+                        )}
+                        {sorted.map((row) => (
+                            <tr key={row.name}>
+                                <Td>
+                                    <button
+                                        {...stylex.props(ui.textButton)}
+                                        onClick={() =>
+                                            row.file
+                                                ? setSelected(row.file)
+                                                : go([prefix, row.name].filter(Boolean).join("/"))
+                                        }
+                                    >
+                                        {row.folder ? <Folder size={15} /> : <File size={15} />}
+                                        {row.name}
+                                    </button>
+                                </Td>
+                                <Td muted>{row.file && bytes(row.file.size)}</Td>
+                                <Td muted>{row.file && date(row.file.updatedAt)}</Td>
+                                <Td right>
+                                    {row.file && (
+                                        <a
+                                            href={`${endpoint}/${row.file.path}`}
+                                            download
+                                            aria-label={`Download ${row.name}`}
+                                            {...stylex.props(ui.quietLink)}
+                                        >
+                                            <Download size={15} {...stylex.props(styles.icon)} />
+                                        </a>
+                                    )}
+                                </Td>
+                            </tr>
+                        ))}
+                    </Table>
                 ) : (
                     <Empty>{query ? "No matching artifacts." : "No artifacts here yet."}</Empty>
                 )}
                 {files.data?.next && (
-                    <button
-                        className="button small"
-                        onClick={() => setParams({ prefix, after: files.data!.next! })}
-                    >
+                    <Button small onClick={() => setParams({ prefix, after: files.data!.next! })}>
                         Next page
-                    </button>
+                    </Button>
                 )}
             </section>
             <section>
-                <h2>{coordinate ? "Use this version" : "Add to your build"}</h2>
+                <h2 {...stylex.props(ui.h2)}>
+                    {coordinate ? "Use this version" : "Add to your build"}
+                </h2>
                 <Code>{snippet}</Code>
                 {coordinate && admin && (
-                    <button className="button danger" onClick={() => setDeleting(true)}>
-                        Delete version
-                    </button>
+                    <Button onClick={() => setDeleting(true)}>Delete version</Button>
                 )}
             </section>
             {account.role && (
                 <section>
-                    <h2>Publications</h2>
+                    <h2 {...stylex.props(ui.h2)}>Publications</h2>
                     <ErrorNotice error={publications.error} />
                     {publications.isPending ? (
                         <Loading />
                     ) : publications.data?.length ? (
-                        <div className="scroll">
-                            <table>
-                                <thead>
-                                    <tr>
-                                        <th>Publication</th>
-                                        <th>Status</th>
-                                        <th>Created</th>
-                                        <th />
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {publications.data.map((publication) => (
-                                        <tr key={publication.id}>
-                                            <td>
-                                                {publication.label || "Untitled"}{" "}
-                                                <span className="mono muted">{publication.id}</span>
-                                            </td>
-                                            <td>
-                                                <Badge
-                                                    tone={
-                                                        publication.status === "committed"
-                                                            ? "green"
-                                                            : publication.status === "open"
-                                                              ? "amber"
-                                                              : "neutral"
-                                                    }
-                                                >
-                                                    {publication.status}
-                                                </Badge>
-                                            </td>
-                                            <td className="muted">{date(publication.createdAt)}</td>
-                                            <td>
-                                                {admin && publication.status === "open" && (
-                                                    <button
-                                                        className="button small danger"
-                                                        onClick={() => setAborting(publication.id)}
-                                                    >
-                                                        Abort
-                                                    </button>
-                                                )}
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
+                        <Table head={["Publication", "Status", "Created", ""]}>
+                            {publications.data.map((publication) => (
+                                <tr key={publication.id}>
+                                    <Td>
+                                        {publication.label || "Untitled"}{" "}
+                                        <span {...stylex.props(ui.mono, ui.muted)}>
+                                            {publication.id}
+                                        </span>
+                                    </Td>
+                                    <Td>
+                                        <Badge>{publication.status}</Badge>
+                                    </Td>
+                                    <Td muted>{date(publication.createdAt)}</Td>
+                                    <Td right>
+                                        {admin && publication.status === "open" && (
+                                            <Button
+                                                small
+                                                onClick={() => setAborting(publication.id)}
+                                            >
+                                                Abort
+                                            </Button>
+                                        )}
+                                    </Td>
+                                </tr>
+                            ))}
+                        </Table>
                     ) : (
                         <Empty>No publications yet.</Empty>
                     )}
@@ -485,27 +442,27 @@ export function RepositoryBrowser() {
             )}
             {selected && (
                 <Modal title={selected.path.split("/").at(-1)!} onClose={() => setSelected(null)}>
-                    <dl>
-                        <dt>Path</dt>
-                        <dd className="mono">{selected.path}</dd>
-                        <dt>Size</dt>
-                        <dd>{bytes(selected.size)}</dd>
-                        <dt>Published</dt>
-                        <dd>{date(selected.updatedAt)}</dd>
-                        <dt>SHA-256</dt>
-                        <dd>
+                    <dl {...stylex.props(ui.dl)}>
+                        <dt {...stylex.props(ui.dt)}>Path</dt>
+                        <dd {...stylex.props(ui.dd, ui.mono)}>{selected.path}</dd>
+                        <dt {...stylex.props(ui.dt)}>Size</dt>
+                        <dd {...stylex.props(ui.dd)}>{bytes(selected.size)}</dd>
+                        <dt {...stylex.props(ui.dt)}>Published</dt>
+                        <dd {...stylex.props(ui.dd)}>{date(selected.updatedAt)}</dd>
+                        <dt {...stylex.props(ui.dt)}>SHA-256</dt>
+                        <dd {...stylex.props(ui.dd)}>
                             <Code>{selected.sha256}</Code>
                         </dd>
-                        <dt>URL</dt>
-                        <dd>
+                        <dt {...stylex.props(ui.dt)}>URL</dt>
+                        <dd {...stylex.props(ui.dd)}>
                             <Code>{`${endpoint}/${selected.path}`}</Code>
                         </dd>
                     </dl>
-                    <div className="form-footer">
+                    <div {...stylex.props(ui.footer)}>
                         <a
-                            className="button primary"
                             href={`${endpoint}/${selected.path}`}
                             download
+                            {...stylex.props(ui.button, ui.primary)}
                         >
                             Download
                         </a>

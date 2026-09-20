@@ -1,0 +1,14 @@
+@import "@fontsource-variable/dm-sans";
+@import "@fontsource/ibm-plex-mono/latin-400.css";
+
+:root {
+    color-scheme: light dark;
+}
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+body {
+    margin: 0;
+}

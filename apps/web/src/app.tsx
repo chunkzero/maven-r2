@@ -1,12 +1,58 @@
+import * as stylex from "@stylexjs/stylex";
 import { createContext, useContext, useState } from "react";
 import { Link, NavLink, Navigate, Route, Routes, useNavigate, useParams } from "react-router";
 import { z } from "zod";
 import { accountSchema, configSchema, meSchema, type Account } from "@maven-r2/contracts/schemas";
 import { api, authClient, useAction, useApi } from "./api";
-import { ErrorNotice, Field, Loading, Modal } from "./components";
+import { Button, Empty, ErrorNotice, Field, Input, Loading, Modal, Select, ui } from "./components";
 import { Repositories, RepositoryBrowser } from "./repositories";
 import { Tokens } from "./tokens";
 import { Members, Audit, AccountSettings, Invite } from "./settings";
+import { colors, fonts } from "./theme.stylex";
+
+const NARROW = "@media (max-width: 640px)";
+const styles = stylex.create({
+    root: {
+        minHeight: "100vh",
+        fontFamily: fonts.sans,
+        fontSize: 14,
+        lineHeight: 1.5,
+        color: colors.fg,
+        backgroundColor: colors.bg,
+        WebkitFontSmoothing: "antialiased",
+    },
+    topbar: {
+        display: "flex",
+        flexWrap: "wrap",
+        alignItems: "center",
+        gap: "8px 20px",
+        paddingBlock: 12,
+        paddingInline: { default: 24, [NARROW]: 16 },
+        borderBottomWidth: 1,
+        borderBottomStyle: "solid",
+        borderBottomColor: colors.line,
+    },
+    brand: { fontWeight: 700, color: colors.fg, textDecorationLine: "none" },
+    nav: { display: "flex", flexWrap: "wrap", alignItems: "center", gap: "4px 14px" },
+    navLink: {
+        color: { default: colors.muted, ":hover": colors.fg },
+        textDecorationLine: "none",
+        paddingBlock: 4,
+        borderBottomWidth: 2,
+        borderBottomStyle: "solid",
+        borderBottomColor: "transparent",
+    },
+    active: { color: colors.fg, borderBottomColor: colors.fg },
+    end: { display: "flex", alignItems: "center", gap: 12, marginLeft: "auto" },
+    main: {
+        maxWidth: 1040,
+        marginInline: "auto",
+        padding: { default: 24, [NARROW]: 16 },
+        display: "flex",
+        flexDirection: "column",
+        gap: 16,
+    },
+});
 
 type User = z.infer<typeof meSchema>["user"];
 const Workspace = createContext<{ account: Account; user: User }>({ account: null!, user: null });
@@ -20,15 +66,13 @@ export function App() {
     if (config.isPending || accounts.isPending || me.isPending) return <Loading />;
     if (!config.data || !accounts.data)
         return (
-            <main>
+            <main {...stylex.props(styles.root, styles.main)}>
                 <ErrorNotice error={config.error ?? accounts.error ?? me.error} />
-                <button className="button" onClick={() => location.reload()}>
-                    Try again
-                </button>
+                <Button onClick={() => location.reload()}>Try again</Button>
             </main>
         );
     const user = me.data?.user ?? null;
-    const home = accounts.data[0] ? `/${accounts.data[0].slug}` : "/welcome";
+    const home = accounts.data[0] ? `/${accounts.data[0].slug}` : null;
     const create =
         user &&
         config.data.instanceMode === "multi" &&
@@ -37,43 +81,46 @@ export function App() {
             : undefined;
     const provider = config.data.githubEnabled ? "github" : config.data.oidcEnabled ? "oidc" : null;
     return (
-        <>
-            <header className="topbar">
-                <Link to={home} className="brand">
+        <div {...stylex.props(styles.root)}>
+            <header {...stylex.props(styles.topbar)}>
+                <Link to="/" {...stylex.props(styles.brand)}>
                     Maven R2
                 </Link>
                 <Routes>
+                    <Route path="/invite/*" element={null} />
                     <Route
                         path="/:account/*"
                         element={<Nav accounts={accounts.data} onCreate={create} />}
                     />
                     <Route path="*" element={null} />
                 </Routes>
-                <div className="topbar-end">
+                <div {...stylex.props(styles.end)}>
                     <a
                         href="https://github.com/chunkzero/maven-r2#publishing"
                         target="_blank"
                         rel="noreferrer"
+                        {...stylex.props(ui.quietLink)}
                     >
                         Docs
                     </a>
                     {user ? (
                         <>
-                            <span className="muted">{user.name}</span>
-                            <button
-                                className="button small"
+                            <span {...stylex.props(ui.muted)}>{user.name}</span>
+                            <Button
+                                small
                                 onClick={async () => {
                                     await authClient.signOut();
                                     location.assign("/");
                                 }}
                             >
                                 Sign out
-                            </button>
+                            </Button>
                         </>
                     ) : (
                         provider && (
-                            <button
-                                className="button small primary"
+                            <Button
+                                small
+                                primary
                                 onClick={() =>
                                     void authClient.signIn.social({
                                         provider,
@@ -82,54 +129,63 @@ export function App() {
                                 }
                             >
                                 {provider === "github" ? "Sign in with GitHub" : "Sign in"}
-                            </button>
+                            </Button>
                         )
                     )}
                 </div>
             </header>
-            <main>
+            <main {...stylex.props(styles.main)}>
                 <Routes>
+                    <Route
+                        path="/"
+                        element={
+                            home ? (
+                                <Navigate to={home} replace />
+                            ) : (
+                                <>
+                                    <h1 {...stylex.props(ui.h1)}>Maven R2</h1>
+                                    <p {...stylex.props(ui.p, ui.muted)}>
+                                        {user
+                                            ? "You are not a member of any workspace yet. Create one or accept an invitation."
+                                            : "Sign in to see your workspaces. Public repositories are listed without signing in."}
+                                    </p>
+                                    {create && (
+                                        <div>
+                                            <Button primary onClick={create}>
+                                                Create workspace
+                                            </Button>
+                                        </div>
+                                    )}
+                                </>
+                            )
+                        }
+                    />
+                    <Route path="/invite/:secret" element={<Invite user={user} />} />
                     <Route
                         path="/:account/*"
                         element={<AccountRoutes accounts={accounts.data} user={user} />}
                     />
-                    <Route path="/invite/:secret" element={<Invite user={user} />} />
-                    <Route
-                        path="/welcome"
-                        element={
-                            <>
-                                <h1>Maven R2</h1>
-                                <p className="muted">
-                                    {user
-                                        ? "You are not a member of any workspace yet. Create one or accept an invitation."
-                                        : "Sign in to see your workspaces. Public repositories are listed without signing in."}
-                                </p>
-                                {create && (
-                                    <button className="button primary" onClick={create}>
-                                        Create workspace
-                                    </button>
-                                )}
-                            </>
-                        }
-                    />
-                    <Route path="*" element={<Navigate to={home} replace />} />
+                    <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>
             </main>
             {creating && <CreateAccount close={() => setCreating(false)} />}
-        </>
+        </div>
     );
 }
 
 function Nav({ accounts, onCreate }: { accounts: Account[]; onCreate?: () => void }) {
     const { account: slug = "" } = useParams(),
         navigate = useNavigate();
-    const account = accounts.find((account) => account.slug === slug),
-        base = `/${slug}`;
-    const admin = account?.role === "owner" || account?.role === "admin";
+    const account = accounts.find((account) => account.slug === slug);
+    if (!account) return null;
+    const admin = account.role === "owner" || account.role === "admin";
+    const link = ({ isActive }: { isActive: boolean }) =>
+        stylex.props(styles.navLink, isActive && styles.active).className ?? "";
     return (
-        <nav className="nav">
+        <nav {...stylex.props(styles.nav)}>
             {(accounts.length > 1 || onCreate) && (
-                <select
+                <Select
+                    sx={ui.auto}
                     aria-label="Workspace"
                     value={slug}
                     onChange={(e) => navigate(`/${e.target.value}`)}
@@ -139,22 +195,32 @@ function Nav({ accounts, onCreate }: { accounts: Account[]; onCreate?: () => voi
                             {account.name}
                         </option>
                     ))}
-                </select>
+                </Select>
             )}
             {onCreate && (
-                <button className="button small" onClick={onCreate}>
+                <Button small onClick={onCreate}>
                     New workspace
-                </button>
+                </Button>
             )}
-            <NavLink to={base} end>
+            <NavLink to={`/${slug}`} end className={link}>
                 Repositories
             </NavLink>
-            {account?.role && <NavLink to={base + "/tokens"}>Tokens</NavLink>}
+            {account.role && (
+                <NavLink to={`/${slug}/tokens`} className={link}>
+                    Tokens
+                </NavLink>
+            )}
             {admin && (
                 <>
-                    <NavLink to={base + "/members"}>Members</NavLink>
-                    <NavLink to={base + "/audit"}>Activity</NavLink>
-                    <NavLink to={base + "/settings"}>Settings</NavLink>
+                    <NavLink to={`/${slug}/members`} className={link}>
+                        Members
+                    </NavLink>
+                    <NavLink to={`/${slug}/audit`} className={link}>
+                        Activity
+                    </NavLink>
+                    <NavLink to={`/${slug}/settings`} className={link}>
+                        Settings
+                    </NavLink>
                 </>
             )}
         </nav>
@@ -165,10 +231,10 @@ function AccountRoutes({ accounts, user }: { accounts: Account[]; user: User }) 
         account = accounts.find((account) => account.slug === slug);
     if (!account)
         return (
-            <p className="empty">
+            <Empty>
                 This workspace is unavailable. Sign in with an account that has access, or choose
                 another workspace.
-            </p>
+            </Empty>
         );
     return (
         <Workspace.Provider value={{ account, user }}>
@@ -204,7 +270,7 @@ function CreateAccount({ close }: { close: () => void }) {
                 }}
             >
                 <Field label="Name">
-                    <input
+                    <Input
                         value={name}
                         onChange={(e) => setName(e.target.value)}
                         required
@@ -212,7 +278,7 @@ function CreateAccount({ close }: { close: () => void }) {
                     />
                 </Field>
                 <Field label="URL slug" hint="Lowercase letters, numbers, and hyphens.">
-                    <input
+                    <Input
                         value={slug}
                         onChange={(e) => setSlug(e.target.value)}
                         required
@@ -220,13 +286,13 @@ function CreateAccount({ close }: { close: () => void }) {
                     />
                 </Field>
                 <ErrorNotice error={create.error} />
-                <div className="form-footer">
-                    <button className="button" type="button" onClick={close}>
+                <div {...stylex.props(ui.footer)}>
+                    <Button type="button" onClick={close}>
                         Cancel
-                    </button>
-                    <button className="button primary" disabled={create.isPending}>
+                    </Button>
+                    <Button primary disabled={create.isPending}>
                         Create workspace
-                    </button>
+                    </Button>
                 </div>
             </form>
         </Modal>

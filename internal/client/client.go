@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,8 +24,9 @@ type Client struct {
 }
 
 type HTTPError struct {
-	Status  int
-	Message string
+	Status     int
+	Message    string
+	RetryAfter time.Duration
 }
 
 func (e *HTTPError) Error() string { return fmt.Sprintf("server returned %d: %s", e.Status, e.Message) }
@@ -62,10 +64,17 @@ func decode[T any](response *http.Response, err error) (T, error) {
 func responseError(response *http.Response) error {
 	data, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
 	var detail api.Error
-	if json.Unmarshal(data, &detail) == nil && detail.Error != "" {
-		return &HTTPError{response.StatusCode, detail.Error}
+	var wait time.Duration
+	if seconds, err := strconv.Atoi(response.Header.Get("Retry-After")); err == nil {
+		wait = time.Duration(seconds) * time.Second
+	} else if until, err := http.ParseTime(response.Header.Get("Retry-After")); err == nil {
+		wait = time.Until(until)
 	}
-	return &HTTPError{response.StatusCode, http.StatusText(response.StatusCode)}
+	wait = max(0, min(wait, 2*time.Minute))
+	if json.Unmarshal(data, &detail) == nil && detail.Error != "" {
+		return &HTTPError{response.StatusCode, detail.Error, wait}
+	}
+	return &HTTPError{response.StatusCode, http.StatusText(response.StatusCode), wait}
 }
 
 func (c *Client) Begin(ctx context.Context, account, repository, label string) (api.Publication, error) {
@@ -178,10 +187,14 @@ func retry[T any](ctx context.Context, operation func() (T, error)) (T, error) {
 		if attempt == 3 {
 			break
 		}
+		delay := time.Duration(1<<attempt) * 250 * time.Millisecond
+		if status, ok := err.(*HTTPError); ok {
+			delay = max(delay, status.RetryAfter)
+		}
 		select {
 		case <-ctx.Done():
 			return result, ctx.Err()
-		case <-time.After(time.Duration(1<<attempt) * 250 * time.Millisecond):
+		case <-time.After(delay):
 		}
 	}
 	return result, err

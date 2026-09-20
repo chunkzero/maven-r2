@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/alecthomas/kong"
@@ -60,7 +61,14 @@ func (cli *CLI) client() (*client.Client, error) {
 	}
 	profile := cfg.Profiles[cli.Profile]
 	if cli.Server != "" {
-		profile.Server = cli.Server
+		server, err := config.ValidateServer(cli.Server)
+		if err != nil {
+			return nil, err
+		}
+		if profile.Token != "" && profile.Server != server && os.Getenv("MAVEN_R2_TOKEN") == "" {
+			return nil, fmt.Errorf("server differs from profile %q; select the matching profile or provide MAVEN_R2_TOKEN", cli.Profile)
+		}
+		profile.Server = server
 	}
 	if token := os.Getenv("MAVEN_R2_TOKEN"); token != "" {
 		profile.Token = token
@@ -77,7 +85,7 @@ func (cmd *LoginCmd) Run(cli *CLI) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintln(os.Stderr, "Create a scoped token in the web console:", server+"/tokens")
+	fmt.Fprintln(os.Stderr, "Create a scoped token in the web console:", server)
 	var token string
 	if cmd.TokenStdin {
 		scanner := bufio.NewScanner(os.Stdin)
@@ -161,7 +169,13 @@ type PublishCmd struct {
 }
 
 func (cmd *PublishCmd) Run(cli *CLI) error {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	if len(cmd.Command) > 0 && cmd.Command[0] == "--" {
+		cmd.Command = cmd.Command[1:]
+	}
+	if len(cmd.Command) == 0 {
+		return fmt.Errorf("provide a build command after --")
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	c, err := cli.client()
 	if err != nil {
@@ -239,7 +253,7 @@ type ServeCmd struct {
 }
 
 func (cmd *ServeCmd) Run(cli *CLI) error {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	c, err := cli.client()
 	if err != nil {

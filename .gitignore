@@ -12,8 +12,12 @@ coverage/
 bin/
 .gradle/
 build/
+target/
+.flattened-pom.xml
 .DS_Store
 *.log
 test-results/
 playwright-report/
 .mise.local.toml
+
+.artifacts/

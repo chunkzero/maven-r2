@@ -35,3 +35,7 @@ contracts:
     go generate ./internal/api
 
 ready: check test build
+
+# Requires Chromium: pnpm exec playwright install chromium
+interop: build
+    node scripts/interop.mjs

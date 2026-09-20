@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>com.example.mavenr2</groupId>
+    <artifactId>consumer</artifactId>
+    <version>1.0.0</version>
+    <repositories>
+        <repository>
+            <id>maven-r2</id>
+            <url>${env.MAVEN_R2_DOWNLOAD_URL}</url>
+            <snapshots><enabled>true</enabled><updatePolicy>always</updatePolicy></snapshots>
+        </repository>
+    </repositories>
+    <dependencies>
+        <dependency><groupId>com.example.mavenr2</groupId><artifactId>extra</artifactId><version>${verify.version}</version></dependency>
+        <dependency><groupId>com.example.mavenr2</groupId><artifactId>maven-library</artifactId><version>${verify.version}</version></dependency>
+    </dependencies>
+</project>

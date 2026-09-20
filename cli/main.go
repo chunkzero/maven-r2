@@ -190,7 +190,7 @@ func (cmd *PublishCmd) Run(cli *CLI) error {
 	if err != nil {
 		return err
 	}
-	if publication.Status != api.PublicationStatusOpen {
+	if publication.Status != api.Open {
 		return fmt.Errorf("publication is %s", publication.Status)
 	}
 	logger := log.New(os.Stderr, "maven-r2: ", 0)
@@ -263,7 +263,7 @@ func (cmd *ServeCmd) Run(cli *CLI) error {
 	if err != nil {
 		return err
 	}
-	if publication.Status != api.PublicationStatusOpen {
+	if publication.Status != api.Open {
 		return fmt.Errorf("publication is %s", publication.Status)
 	}
 	local := &proxy.Server{Client: c, Session: cmd.Session, MaxFileBytes: cmd.MaxFileBytes, Log: log.New(os.Stderr, "maven-r2: ", 0)}

@@ -286,45 +286,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "id": {
-                      "type": "string"
-                    },
-                    "repositoryId": {
-                      "type": "string"
-                    },
-                    "status": {
-                      "type": "string",
-                      "enum": [
-                        "open",
-                        "committed",
-                        "aborted"
-                      ]
-                    },
-                    "label": {
-                      "type": "string"
-                    },
-                    "createdAt": {
-                      "type": "integer"
-                    },
-                    "expiresAt": {
-                      "type": "integer"
-                    },
-                    "committedAt": {
-                      "type": "integer",
-                      "nullable": true
-                    }
-                  },
-                  "required": [
-                    "id",
-                    "repositoryId",
-                    "status",
-                    "label",
-                    "createdAt",
-                    "expiresAt",
-                    "committedAt"
-                  ]
+                  "$ref": "#/components/schemas/Publication"
                 }
               }
             }
@@ -414,45 +376,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "id": {
-                      "type": "string"
-                    },
-                    "repositoryId": {
-                      "type": "string"
-                    },
-                    "status": {
-                      "type": "string",
-                      "enum": [
-                        "open",
-                        "committed",
-                        "aborted"
-                      ]
-                    },
-                    "label": {
-                      "type": "string"
-                    },
-                    "createdAt": {
-                      "type": "integer"
-                    },
-                    "expiresAt": {
-                      "type": "integer"
-                    },
-                    "committedAt": {
-                      "type": "integer",
-                      "nullable": true
-                    }
-                  },
-                  "required": [
-                    "id",
-                    "repositoryId",
-                    "status",
-                    "label",
-                    "createdAt",
-                    "expiresAt",
-                    "committedAt"
-                  ]
+                  "$ref": "#/components/schemas/Publication"
                 }
               }
             }
@@ -746,45 +670,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "id": {
-                      "type": "string"
-                    },
-                    "repositoryId": {
-                      "type": "string"
-                    },
-                    "status": {
-                      "type": "string",
-                      "enum": [
-                        "open",
-                        "committed",
-                        "aborted"
-                      ]
-                    },
-                    "label": {
-                      "type": "string"
-                    },
-                    "createdAt": {
-                      "type": "integer"
-                    },
-                    "expiresAt": {
-                      "type": "integer"
-                    },
-                    "committedAt": {
-                      "type": "integer",
-                      "nullable": true
-                    }
-                  },
-                  "required": [
-                    "id",
-                    "repositoryId",
-                    "status",
-                    "label",
-                    "createdAt",
-                    "expiresAt",
-                    "committedAt"
-                  ]
+                  "$ref": "#/components/schemas/Publication"
                 }
               }
             }

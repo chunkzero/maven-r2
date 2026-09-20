@@ -18,19 +18,19 @@ import (
 
 // Defines values for PublicationStatus.
 const (
-	PublicationStatusAborted   PublicationStatus = "aborted"
-	PublicationStatusCommitted PublicationStatus = "committed"
-	PublicationStatusOpen      PublicationStatus = "open"
+	Aborted   PublicationStatus = "aborted"
+	Committed PublicationStatus = "committed"
+	Open      PublicationStatus = "open"
 )
 
 // Valid indicates whether the value is a known member of the PublicationStatus enum.
 func (e PublicationStatus) Valid() bool {
 	switch e {
-	case PublicationStatusAborted:
+	case Aborted:
 		return true
-	case PublicationStatusCommitted:
+	case Committed:
 		return true
-	case PublicationStatusOpen:
+	case Open:
 		return true
 	default:
 		return false
@@ -49,69 +49,6 @@ func (e UploadStatus) Valid() bool {
 	case Complete:
 		return true
 	case Pending:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for AbortPublication200JSONResponseBodyStatus.
-const (
-	AbortPublication200JSONResponseBodyStatusAborted   AbortPublication200JSONResponseBodyStatus = "aborted"
-	AbortPublication200JSONResponseBodyStatusCommitted AbortPublication200JSONResponseBodyStatus = "committed"
-	AbortPublication200JSONResponseBodyStatusOpen      AbortPublication200JSONResponseBodyStatus = "open"
-)
-
-// Valid indicates whether the value is a known member of the AbortPublication200JSONResponseBodyStatus enum.
-func (e AbortPublication200JSONResponseBodyStatus) Valid() bool {
-	switch e {
-	case AbortPublication200JSONResponseBodyStatusAborted:
-		return true
-	case AbortPublication200JSONResponseBodyStatusCommitted:
-		return true
-	case AbortPublication200JSONResponseBodyStatusOpen:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for GetPublication200JSONResponseBodyStatus.
-const (
-	GetPublication200JSONResponseBodyStatusAborted   GetPublication200JSONResponseBodyStatus = "aborted"
-	GetPublication200JSONResponseBodyStatusCommitted GetPublication200JSONResponseBodyStatus = "committed"
-	GetPublication200JSONResponseBodyStatusOpen      GetPublication200JSONResponseBodyStatus = "open"
-)
-
-// Valid indicates whether the value is a known member of the GetPublication200JSONResponseBodyStatus enum.
-func (e GetPublication200JSONResponseBodyStatus) Valid() bool {
-	switch e {
-	case GetPublication200JSONResponseBodyStatusAborted:
-		return true
-	case GetPublication200JSONResponseBodyStatusCommitted:
-		return true
-	case GetPublication200JSONResponseBodyStatusOpen:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for CommitPublication200JSONResponseBodyStatus.
-const (
-	CommitPublication200JSONResponseBodyStatusAborted   CommitPublication200JSONResponseBodyStatus = "aborted"
-	CommitPublication200JSONResponseBodyStatusCommitted CommitPublication200JSONResponseBodyStatus = "committed"
-	CommitPublication200JSONResponseBodyStatusOpen      CommitPublication200JSONResponseBodyStatus = "open"
-)
-
-// Valid indicates whether the value is a known member of the CommitPublication200JSONResponseBodyStatus enum.
-func (e CommitPublication200JSONResponseBodyStatus) Valid() bool {
-	switch e {
-	case CommitPublication200JSONResponseBodyStatusAborted:
-		return true
-	case CommitPublication200JSONResponseBodyStatusCommitted:
-		return true
-	case CommitPublication200JSONResponseBodyStatusOpen:
 		return true
 	default:
 		return false
@@ -168,15 +105,6 @@ type Upload struct {
 
 // UploadStatus defines model for Upload.Status.
 type UploadStatus string
-
-// AbortPublication200JSONResponseBodyStatus defines parameters for AbortPublication.
-type AbortPublication200JSONResponseBodyStatus string
-
-// GetPublication200JSONResponseBodyStatus defines parameters for GetPublication.
-type GetPublication200JSONResponseBodyStatus string
-
-// CommitPublication200JSONResponseBodyStatus defines parameters for CommitPublication.
-type CommitPublication200JSONResponseBodyStatus string
 
 // CreatePublicationJSONRequestBody defines body for CreatePublication for application/json ContentType.
 type CreatePublicationJSONRequestBody = CreatePublication
@@ -797,15 +725,7 @@ type AbortPublicationResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	// JSON200 the response for an HTTP 200 `application/json` response
-	JSON200 *struct {
-		CommittedAt  *int                                      `json:"committedAt"`
-		CreatedAt    int                                       `json:"createdAt"`
-		ExpiresAt    int                                       `json:"expiresAt"`
-		Id           string                                    `json:"id"`
-		Label        string                                    `json:"label"`
-		RepositoryId string                                    `json:"repositoryId"`
-		Status       AbortPublication200JSONResponseBodyStatus `json:"status"`
-	}
+	JSON200 *Publication
 	// JSON400 the response for an HTTP 400 `application/json` response
 	JSON400 *Error
 	// JSON401 the response for an HTTP 401 `application/json` response
@@ -821,15 +741,7 @@ type AbortPublicationResponse struct {
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
-func (r AbortPublicationResponse) GetJSON200() *struct {
-	CommittedAt  *int                                      `json:"committedAt"`
-	CreatedAt    int                                       `json:"createdAt"`
-	ExpiresAt    int                                       `json:"expiresAt"`
-	Id           string                                    `json:"id"`
-	Label        string                                    `json:"label"`
-	RepositoryId string                                    `json:"repositoryId"`
-	Status       AbortPublication200JSONResponseBodyStatus `json:"status"`
-} {
+func (r AbortPublicationResponse) GetJSON200() *Publication {
 	return r.JSON200
 }
 
@@ -896,15 +808,7 @@ type GetPublicationResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	// JSON200 the response for an HTTP 200 `application/json` response
-	JSON200 *struct {
-		CommittedAt  *int                                    `json:"committedAt"`
-		CreatedAt    int                                     `json:"createdAt"`
-		ExpiresAt    int                                     `json:"expiresAt"`
-		Id           string                                  `json:"id"`
-		Label        string                                  `json:"label"`
-		RepositoryId string                                  `json:"repositoryId"`
-		Status       GetPublication200JSONResponseBodyStatus `json:"status"`
-	}
+	JSON200 *Publication
 	// JSON400 the response for an HTTP 400 `application/json` response
 	JSON400 *Error
 	// JSON401 the response for an HTTP 401 `application/json` response
@@ -920,15 +824,7 @@ type GetPublicationResponse struct {
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
-func (r GetPublicationResponse) GetJSON200() *struct {
-	CommittedAt  *int                                    `json:"committedAt"`
-	CreatedAt    int                                     `json:"createdAt"`
-	ExpiresAt    int                                     `json:"expiresAt"`
-	Id           string                                  `json:"id"`
-	Label        string                                  `json:"label"`
-	RepositoryId string                                  `json:"repositoryId"`
-	Status       GetPublication200JSONResponseBodyStatus `json:"status"`
-} {
+func (r GetPublicationResponse) GetJSON200() *Publication {
 	return r.JSON200
 }
 
@@ -995,15 +891,7 @@ type CommitPublicationResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	// JSON200 the response for an HTTP 200 `application/json` response
-	JSON200 *struct {
-		CommittedAt  *int                                       `json:"committedAt"`
-		CreatedAt    int                                        `json:"createdAt"`
-		ExpiresAt    int                                        `json:"expiresAt"`
-		Id           string                                     `json:"id"`
-		Label        string                                     `json:"label"`
-		RepositoryId string                                     `json:"repositoryId"`
-		Status       CommitPublication200JSONResponseBodyStatus `json:"status"`
-	}
+	JSON200 *Publication
 	// JSON400 the response for an HTTP 400 `application/json` response
 	JSON400 *Error
 	// JSON401 the response for an HTTP 401 `application/json` response
@@ -1019,15 +907,7 @@ type CommitPublicationResponse struct {
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
-func (r CommitPublicationResponse) GetJSON200() *struct {
-	CommittedAt  *int                                       `json:"committedAt"`
-	CreatedAt    int                                        `json:"createdAt"`
-	ExpiresAt    int                                        `json:"expiresAt"`
-	Id           string                                     `json:"id"`
-	Label        string                                     `json:"label"`
-	RepositoryId string                                     `json:"repositoryId"`
-	Status       CommitPublication200JSONResponseBodyStatus `json:"status"`
-} {
+func (r CommitPublicationResponse) GetJSON200() *Publication {
 	return r.JSON200
 }
 
@@ -1427,15 +1307,7 @@ func ParseAbortPublicationResponse(rsp *http.Response) (*AbortPublicationRespons
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest struct {
-			CommittedAt  *int                                      `json:"committedAt"`
-			CreatedAt    int                                       `json:"createdAt"`
-			ExpiresAt    int                                       `json:"expiresAt"`
-			Id           string                                    `json:"id"`
-			Label        string                                    `json:"label"`
-			RepositoryId string                                    `json:"repositoryId"`
-			Status       AbortPublication200JSONResponseBodyStatus `json:"status"`
-		}
+		var dest Publication
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -1503,15 +1375,7 @@ func ParseGetPublicationResponse(rsp *http.Response) (*GetPublicationResponse, e
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest struct {
-			CommittedAt  *int                                    `json:"committedAt"`
-			CreatedAt    int                                     `json:"createdAt"`
-			ExpiresAt    int                                     `json:"expiresAt"`
-			Id           string                                  `json:"id"`
-			Label        string                                  `json:"label"`
-			RepositoryId string                                  `json:"repositoryId"`
-			Status       GetPublication200JSONResponseBodyStatus `json:"status"`
-		}
+		var dest Publication
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -1579,15 +1443,7 @@ func ParseCommitPublicationResponse(rsp *http.Response) (*CommitPublicationRespo
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest struct {
-			CommittedAt  *int                                       `json:"committedAt"`
-			CreatedAt    int                                        `json:"createdAt"`
-			ExpiresAt    int                                        `json:"expiresAt"`
-			Id           string                                     `json:"id"`
-			Label        string                                     `json:"label"`
-			RepositoryId string                                     `json:"repositoryId"`
-			Status       CommitPublication200JSONResponseBodyStatus `json:"status"`
-		}
+		var dest Publication
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}

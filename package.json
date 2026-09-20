@@ -14,6 +14,7 @@
         "db:migrate": "pnpm --filter @maven-r2/worker db:migrate"
     },
     "devDependencies": {
+        "@playwright/test": "1.63.0",
         "@types/node": "^24.0.0",
         "tsx": "^4.20.0",
         "typescript": "^5.9.0",

@@ -5,6 +5,7 @@
     "compatibility_date": "2026-09-19",
     "compatibility_flags": ["nodejs_compat"],
     "observability": { "enabled": true },
+    "limits": { "cpu_ms": 300000 },
     "assets": {
         "directory": "../web/dist",
         "binding": "ASSETS",

@@ -2,6 +2,7 @@ import type { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 import { repositoryInput, role, slug, tokenInput, type Scope } from "@maven-r2/contracts";
 import type { AppEnv } from "./env";
+import { coordinatorRequest } from "./publications";
 import {
     accountView,
     audit,
@@ -18,7 +19,6 @@ import {
 } from "./db";
 import {
     accountRole,
-    canAccess,
     canonicalPath,
     fail,
     getAccount,
@@ -46,7 +46,7 @@ export function registerManagement(app: OpenAPIHono<AppEnv>) {
     );
     app.get("/api/me", async (c) => {
         const user = c.get("principal")?.user;
-        if (user?.admin && c.env.INSTANCE_MODE === "single") {
+        if (user?.admin) {
             const account = await c.env.DB.prepare("SELECT id FROM accounts WHERE slug=?")
                 .bind(c.env.DEFAULT_ACCOUNT_SLUG)
                 .first<{ id: string }>();
@@ -71,18 +71,32 @@ export function registerManagement(app: OpenAPIHono<AppEnv>) {
     });
     app.get("/api/accounts", async (c) => {
         const principal = c.get("principal");
+        const admin = principal?.user?.admin ?? false;
         const rows = await c.env.DB.prepare(
-            "SELECT * FROM accounts WHERE suspended=0 ORDER BY name LIMIT 200",
-        ).all<AccountRow>();
+            "SELECT a.*,m.role AS viewer_role FROM accounts a LEFT JOIN members m ON m.account_id=a.id AND m.user_id=? WHERE (a.suspended=0 OR ?=1) AND (?=1 OR m.user_id IS NOT NULL OR a.id=? OR EXISTS (SELECT 1 FROM repositories r WHERE r.account_id=a.id AND r.visibility='public')) ORDER BY a.name LIMIT 200",
+        )
+            .bind(
+                principal?.user?.id ?? null,
+                admin ? 1 : 0,
+                admin ? 1 : 0,
+                principal?.token?.account_id ?? null,
+            )
+            .all<AccountRow & { viewer_role: import("@maven-r2/contracts").Role | null }>();
         const result = [];
         for (const account of rows.results) {
-            const memberRole = await accountRole(c.env, principal, account.id);
-            const publicRepo = await c.env.DB.prepare(
-                "SELECT 1 FROM repositories WHERE account_id=? AND visibility='public' LIMIT 1",
-            )
-                .bind(account.id)
-                .first();
-            if (memberRole || publicRepo) result.push(accountView(account, memberRole));
+            const memberRole = admin
+                ? "owner"
+                : principal?.token
+                  ? await accountRole(c.env, principal, account.id)
+                  : account.viewer_role;
+            result.push(
+                accountView(
+                    memberRole
+                        ? account
+                        : { ...account, used_bytes: 0, reserved_bytes: 0, max_bytes: 0 },
+                    memberRole,
+                ),
+            );
         }
         return c.json(result);
     });
@@ -220,17 +234,89 @@ export function registerManagement(app: OpenAPIHono<AppEnv>) {
             after = c.req.query("after") ?? "";
         const lower = prefix ? prefix + "/" : "",
             upper = prefix ? prefix + "/\uffff" : "\uffff";
+        const principal = c.get("principal");
+        const memberRole = await accountRole(c.env, principal, repository.account_id);
+        const binds: (string | number)[] = [repository.id, lower, upper, after, search];
+        let filter = "";
+        if (repository.visibility !== "public") {
+            if (!memberRole) fail(principal ? 403 : 401, "Read access required");
+            if (principal?.token) {
+                const scopes = JSON.parse(principal.token.scopes) as Scope[];
+                const prefixes = scopes
+                    .filter(
+                        (scope) =>
+                            scope.repository === repository.slug && scope.actions.includes("read"),
+                    )
+                    .flatMap((scope) => scope.prefixes);
+                if (!prefixes.length) fail(403, "Read access required");
+                if (!prefixes.includes("")) {
+                    filter =
+                        " AND (" +
+                        prefixes
+                            .map((prefix) => {
+                                binds.push(prefix, prefix + "/", prefix + "/\uffff");
+                                return "(path=? OR (path>=? AND path<?))";
+                            })
+                            .join(" OR ") +
+                        ")";
+                }
+            }
+        }
         const rows = await c.env.DB.prepare(
-            "SELECT * FROM files WHERE repository_id=? AND path>=? AND path<? AND path>? AND instr(path,?)>0 ORDER BY path LIMIT 501",
+            "SELECT * FROM files WHERE repository_id=? AND path>=? AND path<? AND path>? AND instr(path,?)>0" +
+                filter +
+                " ORDER BY path LIMIT 501",
         )
-            .bind(repository.id, lower, upper, after, search)
+            .bind(...binds)
             .all<FileRow>();
-        const files = [];
-        for (const file of rows.results.slice(0, 500))
-            if (await canAccess(c.env, c.get("principal"), repository, "read", file.path))
-                files.push(fileView(file));
-        return c.json({ files, next: rows.results.length > 500 ? rows.results[499]!.path : null });
+        return c.json({
+            files: rows.results.slice(0, 500).map(fileView),
+            next: rows.results.length > 500 ? rows.results[499]!.path : null,
+        });
     });
+    app.post("/api/accounts/:account/repositories/:repository/delete-version", async (c) => {
+        const { repository } = await getRepository(
+            c.env,
+            c.req.param("account"),
+            c.req.param("repository"),
+        );
+        const input = z.object({ path: z.string() }).parse(await c.req.json());
+        const response = await coordinatorRequest(
+            c.env,
+            repository.id,
+            `/delete/${repository.id}`,
+            new Request(c.req.url, {
+                method: "POST",
+                headers: c.req.raw.headers,
+                body: JSON.stringify(input),
+            }),
+        );
+        return new Response(response.body, response);
+    });
+    app.post(
+        "/api/accounts/:account/repositories/:repository/publications/:id/abort",
+        async (c) => {
+            const { account, repository } = await getRepository(
+                c.env,
+                c.req.param("account"),
+                c.req.param("repository"),
+            );
+            await requireAdmin(c, account.id);
+            const publication = await c.env.DB.prepare(
+                "SELECT id FROM publications WHERE id=? AND repository_id=?",
+            )
+                .bind(c.req.param("id"), repository.id)
+                .first();
+            if (!publication) fail(404, "Publication not found");
+            const response = await coordinatorRequest(
+                c.env,
+                repository.id,
+                `/admin-abort/${c.req.param("id")}`,
+                new Request(c.req.url, { method: "POST", headers: c.req.raw.headers }),
+            );
+            return new Response(response.body, response);
+        },
+    );
     app.get("/api/accounts/:account/repositories/:repository/publications", async (c) => {
         const { account, repository } = await getRepository(
             c.env,
@@ -270,6 +356,16 @@ export function registerManagement(app: OpenAPIHono<AppEnv>) {
             input = tokenInput.parse(await c.req.json());
         let memberRole = await accountRole(c.env, c.get("principal"), account.id);
         if (!memberRole) fail(403, "Account membership required");
+        if (
+            !input.serviceAccountId &&
+            !(await c.env.DB.prepare("SELECT 1 FROM members WHERE account_id=? AND user_id=?")
+                .bind(account.id, user.id)
+                .first())
+        )
+            fail(
+                403,
+                "Join this workspace before creating a personal token, or use a service account",
+            );
         if (input.serviceAccountId) {
             await requireAdmin(c, account.id);
             const service = await c.env.DB.prepare(
@@ -282,6 +378,8 @@ export function registerManagement(app: OpenAPIHono<AppEnv>) {
         }
         if (input.expiresAt !== null && input.expiresAt <= Date.now())
             fail(400, "Token expiry must be in the future");
+        if (input.scopes.reduce((count, scope) => count + scope.prefixes.length, 0) > 20)
+            fail(400, "A token may contain at most 20 path prefixes");
         for (const scope of input.scopes) {
             await getRepository(c.env, account.slug, scope.repository);
             scope.prefixes = scope.prefixes.map((prefix) => canonicalPath(prefix, true));
@@ -491,6 +589,23 @@ export function registerManagement(app: OpenAPIHono<AppEnv>) {
             audit(c.env, account.id, c.get("principal")!.actor, "invitation.created", id),
         ]);
         return c.json({ id, url: c.env.APP_URL + "/invite/" + secret, expiresAt: expires }, 201);
+    });
+    app.delete("/api/accounts/:account/invitations/:id", async (c) => {
+        const account = await getAccount(c.env, c.req.param("account"));
+        await requireAdmin(c, account.id);
+        await c.env.DB.batch([
+            c.env.DB.prepare(
+                "DELETE FROM invitations WHERE account_id=? AND id=? AND accepted=0",
+            ).bind(account.id, c.req.param("id")),
+            audit(
+                c.env,
+                account.id,
+                c.get("principal")!.actor,
+                "invitation.revoked",
+                c.req.param("id"),
+            ),
+        ]);
+        return c.json({ ok: true });
     });
     app.post("/api/invitations/accept", async (c) => {
         const user = requireUser(c),

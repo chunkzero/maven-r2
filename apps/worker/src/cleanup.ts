@@ -2,7 +2,7 @@ import type { Env } from "./env";
 
 export async function cleanup(env: Env) {
     const repos = await env.DB.prepare(
-        "SELECT DISTINCT r.id FROM repositories r LEFT JOIN publications p ON p.repository_id=r.id AND p.status='open' AND p.expires_at<=? WHERE p.id IS NOT NULL OR r.retention_days>0 LIMIT 100",
+        "SELECT DISTINCT r.id FROM repositories r LEFT JOIN publications p ON p.repository_id=r.id AND p.status='open' AND p.expires_at<=? WHERE p.id IS NOT NULL OR r.retention_days>0 ORDER BY r.last_maintenance_at,r.id LIMIT 100",
     )
         .bind(Date.now())
         .all<{ id: string }>();
@@ -11,6 +11,10 @@ export async function cleanup(env: Env) {
             `https://repository/expire/${repo.id}`,
         );
         if (!result.ok) console.error("Repository cleanup failed", repo.id, result.status);
+        else
+            await env.DB.prepare("UPDATE repositories SET last_maintenance_at=? WHERE id=?")
+                .bind(Date.now(), repo.id)
+                .run();
     }
     const garbage = await env.DB.prepare(
         "SELECT g.* FROM garbage g WHERE g.not_before<=? AND NOT EXISTS (SELECT 1 FROM files f WHERE f.object_key=g.object_key) LIMIT 100",
@@ -24,8 +28,8 @@ export async function cleanup(env: Env) {
                     object.object_key,
                     object.multipart_id,
                 ).abort();
-            } catch {
-                /* Completed multipart uploads no longer have an upload handle. */
+            } catch (error) {
+                if (!/does not exist|not found|NoSuchUpload/i.test(String(error))) throw error;
             }
         }
         await env.BUCKET.delete(object.object_key);

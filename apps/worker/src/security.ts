@@ -7,6 +7,7 @@ import { auth, isInstanceAdmin } from "./auth";
 
 export interface Principal {
     actor: string;
+    roles?: Map<string, Role | null>;
     user?: {
         id: string;
         name: string;
@@ -99,6 +100,18 @@ export async function authenticate(request: Request, env: Env): Promise<Principa
 export async function accountRole(
     env: Env,
     principal: Principal | null,
+    accountId: string,
+): Promise<Role | null> {
+    if (!principal) return null;
+    principal.roles ??= new Map();
+    if (principal.roles.has(accountId)) return principal.roles.get(accountId)!;
+    const role = await resolveAccountRole(env, principal, accountId);
+    principal.roles.set(accountId, role);
+    return role;
+}
+async function resolveAccountRole(
+    env: Env,
+    principal: Principal,
     accountId: string,
 ): Promise<Role | null> {
     if (!principal) return null;

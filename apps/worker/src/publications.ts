@@ -68,6 +68,7 @@ export async function authorizeUpload(
     repo: RepositoryRow,
     session: string,
     path: string,
+    staged?: UploadRow[],
 ) {
     const action = publicationAction(path);
     if (action) {
@@ -80,10 +81,14 @@ export async function authorizeUpload(
         return;
     }
     const metadataPath = checksumBase(path)?.path ?? path;
-    const uploads = await env.DB.prepare("SELECT * FROM uploads WHERE publication_id=?")
-        .bind(session)
-        .all<UploadRow>();
-    for (const upload of uploads.results) {
+    const uploads =
+        staged ??
+        (
+            await env.DB.prepare("SELECT * FROM uploads WHERE publication_id=?")
+                .bind(session)
+                .all<UploadRow>()
+        ).results;
+    for (const upload of uploads) {
         const coordinate = coordinates(upload.path);
         if (!coordinate) continue;
         if (
@@ -384,6 +389,13 @@ export async function initiateUpload(
     if (existing) {
         if (existing.sha256 !== input.sha256 || existing.size !== input.size)
             fail(409, "This path already has different content in the publication");
+        if (existing.status === "pending" && existing.size > PART_SIZE && !existing.multipart_id) {
+            const multipart = await env.BUCKET.createMultipartUpload(existing.object_key);
+            existing.multipart_id = multipart.uploadId;
+            await env.DB.prepare("UPDATE uploads SET multipart_id=? WHERE id=?")
+                .bind(multipart.uploadId, existing.id)
+                .run();
+        }
         return uploadView(env, existing);
     }
     const count = await env.DB.prepare(
@@ -391,7 +403,7 @@ export async function initiateUpload(
     )
         .bind(session.id)
         .first<{ count: number }>();
-    if (count!.count >= 2000) fail(413, "A publication may contain at most 2000 uploaded files");
+    if (count!.count >= 500) fail(413, "A publication may contain at most 500 uploaded files");
     const id = crypto.randomUUID(),
         key = `objects/${repo.account_id}/${id}`;
     const upload: UploadRow = {

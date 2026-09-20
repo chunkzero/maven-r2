@@ -1,3 +1,6 @@
+import { createHmac } from "node:crypto";
+import { auth } from "../src/auth";
+import { cleanup } from "../src/cleanup";
 import { env } from "cloudflare:workers";
 import { applyD1Migrations, reset } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -245,5 +248,248 @@ describe("publication and Maven protocol", () => {
                 )
             ).status,
         ).toBe(401);
+    });
+});
+
+async function browserUser(id = "owner", email = "owner@example.com", admin = true, runtime = env) {
+    const now = Date.now(),
+        sessionToken = "session-" + id;
+    await env.DB.batch([
+        env.DB.prepare(
+            "INSERT INTO auth_users (id,name,email,email_verified,github_id,created_at,updated_at) VALUES (?,?,?,1,?,?,?)",
+        ).bind(id, id, email, admin ? "42" : null, now, now),
+        env.DB.prepare(
+            "INSERT INTO auth_sessions (id,token,user_id,expires_at,created_at,updated_at) VALUES (?,?,?,?,?,?)",
+        ).bind(id, sessionToken, id, now + 3600000, now, now),
+    ]);
+    const signature = createHmac("sha256", env.BETTER_AUTH_SECRET)
+        .update(sessionToken)
+        .digest("base64");
+    const cookie =
+        "__Secure-better-auth.session_token=" + encodeURIComponent(sessionToken + "." + signature);
+    return (path: string, method = "GET", body?: unknown) =>
+        app.request(
+            "https://repo.test" + path,
+            {
+                method,
+                headers: {
+                    cookie,
+                    origin: "https://repo.test",
+                    "content-type": "application/json",
+                },
+                body: body === undefined ? undefined : JSON.stringify(body),
+            },
+            runtime,
+        );
+}
+
+describe("account management and lifecycle", () => {
+    it("uses real Better Auth sessions and protects the last owner", async () => {
+        const browser = await browserUser();
+        expect(await json(await browser("/api/me"))).toMatchObject({
+            user: { id: "owner", admin: true },
+        });
+        expect((await browser("/api/accounts/test/members/owner", "DELETE")).status).toBe(409);
+        expect((await request("/api/accounts/test/tokens")).status).toBe(401);
+        const created = await json<{ secret: string; token: { id: string } }>(
+            await browser("/api/accounts/test/tokens", "POST", {
+                name: "Read one namespace",
+                scopes: [{ repository: "releases", prefixes: ["com/acme"], actions: ["read"] }],
+                expiresAt: Date.now() + 60000,
+            }),
+            201,
+        );
+        expect(
+            (
+                await request(
+                    "/api/publications",
+                    "POST",
+                    { account: "test", repository: "releases" },
+                    created.secret,
+                )
+            ).status,
+        ).toBe(403);
+        await json(await browser("/api/accounts/test/tokens/" + created.token.id, "DELETE"));
+        expect(
+            (await request("/api/accounts/test/repositories", "GET", undefined, created.secret))
+                .status,
+        ).toBe(401);
+    });
+    it("restricts invitations to the intended verified identity and disallows closed signups", async () => {
+        const owner = await browserUser(),
+            guest = await browserUser("guest", "guest@example.com", false);
+        const invitation = await json<{ url: string }>(
+            await owner("/api/accounts/test/invitations", "POST", {
+                email: "guest@example.com",
+                role: "publisher",
+            }),
+            201,
+        );
+        const secret = invitation.url.split("/").at(-1);
+        expect((await owner("/api/invitations/accept", "POST", { secret })).status).toBe(404);
+        await json(await guest("/api/invitations/accept", "POST", { secret }));
+        expect(await json(await guest("/api/accounts"))).toMatchObject([{ role: "publisher" }]);
+        expect(
+            (
+                await guest("/api/accounts/test/tokens", "POST", {
+                    name: "Escalate",
+                    scopes: [{ repository: "releases", prefixes: [""], actions: ["delete"] }],
+                    expiresAt: null,
+                })
+            ).status,
+        ).toBe(403);
+        const context = await auth(env).$context;
+        await expect(
+            context.internalAdapter.createUser(
+                {
+                    name: "Blocked",
+                    email: "blocked@example.com",
+                    emailVerified: true,
+                },
+                { method: "oauth" },
+            ),
+        ).rejects.toThrow("Signups are disabled");
+    });
+    it("deletes complete versions, updates metadata and protects readers from mutation", async () => {
+        const browser = await browserUser();
+        for (const version of ["1.0", "2.0"]) {
+            const session = await release(version);
+            await json(await request(`/api/publications/${session.id}/commit`, "POST"));
+        }
+        const path = "/api/accounts/test/repositories/releases/delete-version";
+        expect((await request(path, "POST", { path: "com/acme/demo/1.0" })).status).toBe(403);
+        await json(await browser(path, "POST", { path: "com/acme/demo/1.0" }));
+        expect((await request("/maven/test/releases/com/acme/demo/1.0/demo-1.0.jar")).status).toBe(
+            404,
+        );
+        const metadata = parseMetadata(
+            await (await request("/maven/test/releases/com/acme/demo/maven-metadata.xml")).text(),
+        );
+        expect(metadata.versioning?.versions?.version).toEqual(["2.0"]);
+        const account = await env.DB.prepare(
+            "SELECT used_bytes,reserved_bytes,(SELECT sum(size) FROM files) total FROM accounts",
+        ).first();
+        expect(account?.used_bytes).toBe(account?.total);
+        const session = await release("3.0");
+        await json(
+            await browser(
+                `/api/accounts/test/repositories/releases/publications/${session.id}/abort`,
+                "POST",
+            ),
+        );
+        expect((await request(`/api/publications/${session.id}/commit`, "POST")).status).toBe(409);
+    });
+    it("filters private file listings before pagination and invalidates expired tokens", async () => {
+        const session = await release();
+        await json(await request(`/api/publications/${session.id}/commit`, "POST"));
+        await env.DB.prepare("UPDATE tokens SET scopes=?")
+            .bind(
+                JSON.stringify([
+                    { repository: "releases", prefixes: ["com/elsewhere"], actions: ["read"] },
+                ]),
+            )
+            .run();
+        expect(await json(await request("/api/accounts/test/repositories/releases/files"))).toEqual(
+            { files: [], next: null },
+        );
+        await env.DB.prepare("UPDATE tokens SET expires_at=0").run();
+        expect((await request("/api/accounts/test/repositories")).status).toBe(401);
+    });
+    it("expires abandoned publications and collects only unreferenced objects", async () => {
+        const committed = await release("1.0"),
+            abandoned = await release("2.0");
+        await json(await request(`/api/publications/${committed.id}/commit`, "POST"));
+        await env.DB.prepare("UPDATE publications SET expires_at=0 WHERE id=?")
+            .bind(abandoned.id)
+            .run();
+        await cleanup(env);
+        expect((await request(`/api/publications/${abandoned.id}/commit`, "POST")).status).toBe(
+            409,
+        );
+        await env.DB.prepare("UPDATE garbage SET not_before=0").run();
+        await cleanup(env);
+        expect(
+            await (await request("/maven/test/releases/com/acme/demo/1.0/demo-1.0.jar")).text(),
+        ).toBe("artifact");
+        expect(await env.DB.prepare("SELECT reserved_bytes FROM accounts").first()).toMatchObject({
+            reserved_bytes: 0,
+        });
+    });
+});
+
+describe("workspace policies", () => {
+    it("creates isolated workspaces in multi-account mode", async () => {
+        const runtime = { ...env, INSTANCE_MODE: "multi" as const, ALLOW_ACCOUNT_CREATION: "true" };
+        const browser = await browserUser("tenant", "tenant@example.com", false, runtime);
+        expect(
+            await json(
+                await browser("/api/accounts", "POST", {
+                    slug: "second",
+                    name: "Second workspace",
+                }),
+                201,
+            ),
+        ).toMatchObject({ slug: "second", role: "owner" });
+        await json(
+            await browser("/api/accounts/second/repositories", "POST", {
+                slug: "releases",
+                name: "Releases",
+                policy: "releases",
+                visibility: "private",
+                maxFileBytes: 1000000,
+                retentionDays: 0,
+            }),
+            201,
+        );
+        expect((await browser("/api/accounts/test/members")).status).toBe(403);
+        expect(
+            (await request("/maven/second/releases/com/acme/demo/1.0/demo-1.0.jar")).status,
+        ).toBe(403);
+    });
+    it("rejects quota reservations atomically", async () => {
+        await env.DB.prepare("UPDATE accounts SET max_bytes=10").run();
+        const session = await begin();
+        expect(
+            (
+                await request(`/api/publications/${session.id}/uploads`, "POST", {
+                    path: "com/acme/demo/1.0/demo-1.0.pom",
+                    size: 11,
+                    sha256: await hash("x".repeat(11)),
+                })
+            ).status,
+        ).toBe(413);
+        expect(await env.DB.prepare("SELECT reserved_bytes FROM accounts").first()).toMatchObject({
+            reserved_bytes: 0,
+        });
+        expect(await env.DB.prepare("SELECT count(*) count FROM uploads").first()).toMatchObject({
+            count: 0,
+        });
+    });
+    it("prunes superseded snapshots while preserving current metadata targets", async () => {
+        for (const build of [1, 2]) {
+            const session = await begin("snapshots");
+            const root = `com/acme/demo/1.0-SNAPSHOT/demo-1.0-20260920.120000-${build}`;
+            await stage(session.id, root + ".pom", pom("1.0-SNAPSHOT"));
+            await stage(session.id, root + ".jar", `snapshot-${build}`);
+            await json(await request(`/api/publications/${session.id}/commit`, "POST"));
+        }
+        await env.DB.prepare(
+            "UPDATE files SET updated_at=0 WHERE path LIKE '%-1.jar' OR path LIKE '%-1.pom'",
+        ).run();
+        await cleanup(env);
+        expect(
+            (
+                await request(
+                    "/maven/test/snapshots/com/acme/demo/1.0-SNAPSHOT/demo-1.0-20260920.120000-1.jar",
+                )
+            ).status,
+        ).toBe(404);
+        expect(
+            (
+                await request(
+                    "/maven/test/snapshots/com/acme/demo/1.0-SNAPSHOT/demo-1.0-20260920.120000-2.jar",
+                )
+            ).status,
+        ).toBe(200);
     });
 });

@@ -58,15 +58,21 @@ app.use("/api/*", async (c, next) => {
     }
     await next();
 });
-app.on(["GET", "POST"], "/api/auth/*", (c) => auth(c.env).handler(c.req.raw));
+app.on(["GET", "POST"], "/api/auth/*", async (c) => {
+    await rateLimit(c.env, "auth:" + (c.req.header("cf-connecting-ip") ?? "local"), 60);
+    const response = await auth(c.env).handler(c.req.raw);
+    return new Response(response.body, response);
+});
 app.use("*", async (c, next) => {
     if (c.req.path === "/health") return next();
     c.set("principal", await authenticate(c.req.raw, c.env));
     if (c.req.path.startsWith("/api/") && !["GET", "HEAD"].includes(c.req.method))
         await rateLimit(
             c.env,
-            c.get("principal")?.actor ?? "ip:" + (c.req.header("cf-connecting-ip") ?? "local"),
-            c.req.path.includes("/parts/") ? 600 : 120,
+            (c.req.path.startsWith("/api/publications") ? "publish:" : "manage:") +
+                (c.get("principal")?.actor ??
+                    "ip:" + (c.req.header("cf-connecting-ip") ?? "local")),
+            c.req.path.startsWith("/api/publications") ? 2400 : 120,
         );
     await next();
 });
@@ -88,11 +94,15 @@ app.doc("/api/openapi.json", {
 });
 app.all("/api/*", (c) => c.json({ error: "Not found" }, 404));
 app.all("/maven/*", (c) => c.json({ error: "Publish through the local maven-r2 proxy" }, 405));
-app.get("*", (c) => c.env.ASSETS.fetch(c.req.raw));
+app.get("*", async (c) => {
+    const response = await c.env.ASSETS.fetch(c.req.raw);
+    return new Response(response.body, response);
+});
 app.onError((error, c) => {
     const status =
         error instanceof HTTPException ? error.status : error instanceof ZodError ? 400 : 500;
     if (status === 500) console.error("Request failed", c.get("requestId"), error.message);
+    if (status === 429) c.header("retry-after", "60");
     return c.json(
         {
             error: status === 500 ? "Internal error. Retry the request." : error.message,

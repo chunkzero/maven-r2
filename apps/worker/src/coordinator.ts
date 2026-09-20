@@ -10,7 +10,9 @@ import {
     type RepositoryRow,
     type UploadRow,
 } from "./db";
-import { authenticate, fail, type Principal } from "./security";
+import { authenticate, canonicalPath, accountRole, fail, type Principal } from "./security";
+import { z } from "zod";
+import { deleteVersion } from "./deletion";
 import { authorizeUpload, initiateUpload, sessionAccess } from "./publications";
 import {
     artifactMetadata,
@@ -70,6 +72,24 @@ export class RepositoryCoordinator extends DurableObject<Env> {
             );
             return Response.json(await initiateUpload(this.env, principal, id!, input));
         }
+        if (operation === "delete") {
+            const input = z.object({ path: z.string() }).parse(await request.json());
+            await deleteVersion(this.env, principal, id!, canonicalPath(input.path));
+            return Response.json({ ok: true });
+        }
+        if (operation === "admin-abort") {
+            const session = await this.env.DB.prepare("SELECT * FROM publications WHERE id=?")
+                .bind(id)
+                .first<PublicationRow>();
+            if (!session) fail(404, "Publication not found");
+            const repo = await this.env.DB.prepare("SELECT * FROM repositories WHERE id=?")
+                .bind(session.repository_id)
+                .first<RepositoryRow>();
+            const role = await accountRole(this.env, principal, repo!.account_id);
+            if (!principal.user || (role !== "owner" && role !== "admin"))
+                fail(403, "Account administrator required");
+            return Response.json(publicationView(await this.abort(session, repo!)));
+        }
         const { session, repo } = await sessionAccess(this.env, principal, id!);
         if (operation === "abort")
             return Response.json(publicationView(await this.abort(session, repo)));
@@ -122,7 +142,7 @@ export class RepositoryCoordinator extends DurableObject<Env> {
         if (!uploads.length || uploads.some((upload) => upload.status !== "complete"))
             fail(409, "All files must finish uploading before publication");
         for (const upload of uploads)
-            await authorizeUpload(this.env, principal, repo, session.id, upload.path);
+            await authorizeUpload(this.env, principal, repo, session.id, upload.path, uploads);
         const now = Date.now();
         const originals = new Map<string, FileRow>();
         const artifacts = new Set<string>(),
@@ -135,6 +155,8 @@ export class RepositoryCoordinator extends DurableObject<Env> {
             }
         }
         if (!artifacts.size) fail(400, "A publication must include an artifact");
+        if (artifacts.size > 32 || snapshots.size > 32)
+            fail(413, "Split publications larger than 32 artifacts or snapshot versions");
         for (const artifact of artifacts) {
             const prefix = artifact + "/";
             const rows = await this.env.DB.prepare(
@@ -153,8 +175,8 @@ export class RepositoryCoordinator extends DurableObject<Env> {
                 fail(400, "Signatures on mutable repository metadata are unsupported");
             const c = coordinates(base)!;
             const old = originals.get(upload.path);
-            if (!c.snapshot && old && old.sha256 !== upload.sha256)
-                fail(409, "Release artifacts are immutable");
+            if ((!c.snapshot || c.timestamp) && old && old.sha256 !== upload.sha256)
+                fail(409, "Release artifacts and timestamped snapshots are immutable");
             if (
                 !c.snapshot &&
                 !old &&
@@ -249,6 +271,9 @@ export class RepositoryCoordinator extends DurableObject<Env> {
         ];
         for (const file of changed.values()) {
             statements.push(
+                this.env.DB.prepare("DELETE FROM garbage WHERE object_key=?").bind(file.object_key),
+            );
+            statements.push(
                 this.env.DB.prepare(
                     "INSERT INTO files (repository_id,path,object_key,size,sha256,checksums,publication_id,updated_at) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(repository_id,path) DO UPDATE SET object_key=excluded.object_key,size=excluded.size,sha256=excluded.sha256,checksums=excluded.checksums,publication_id=excluded.publication_id,updated_at=excluded.updated_at",
                 ).bind(
@@ -284,6 +309,11 @@ export class RepositoryCoordinator extends DurableObject<Env> {
             ).bind(now, session.id),
             audit(this.env, repo.account_id, principal.actor, "publication.committed", session.id),
         );
+        if (statements.length > 800)
+            fail(
+                413,
+                "Publication needs too many database changes; split the build into smaller publications",
+            );
         await this.env.DB.batch(statements);
         return { ...session, status: "committed", committed_at: now };
     }
@@ -301,25 +331,35 @@ export class RepositoryCoordinator extends DurableObject<Env> {
         for (const session of expired.results) await this.abort(session, repo);
         if (repo.retention_days <= 0) return;
         const cutoff = Date.now() - repo.retention_days * 24 * 60 * 60 * 1000;
+        const cursor = (await this.ctx.storage.get<string>("retentionCursor")) ?? "";
         const candidates = await this.env.DB.prepare(
-            "SELECT * FROM files WHERE repository_id=? AND updated_at<? AND path LIKE '%-SNAPSHOT/%' AND path NOT LIKE '%maven-metadata.xml' LIMIT 500",
+            "SELECT * FROM files WHERE repository_id=? AND updated_at<? AND path LIKE '%-SNAPSHOT/%' AND path NOT LIKE '%maven-metadata.xml' AND path>? ORDER BY path LIMIT 100",
         )
-            .bind(repoId, cutoff)
+            .bind(repoId, cutoff, cursor)
             .all<FileRow>();
+        await this.ctx.storage.put(
+            "retentionCursor",
+            candidates.results.length === 100 ? candidates.results.at(-1)!.path : "",
+        );
+        const retainedValues = new Map<string, string[]>();
         const removable: FileRow[] = [];
         for (const file of candidates.results) {
             const c = coordinates(file.path.endsWith(".asc") ? file.path.slice(0, -4) : file.path);
             if (!c) continue;
-            const meta = await this.env.DB.prepare(
-                "SELECT * FROM files WHERE repository_id=? AND path=?",
-            )
-                .bind(repoId, c.versionPath + "/maven-metadata.xml")
-                .first<FileRow>();
-            if (!meta) continue;
-            const values =
-                parseMetadata(
-                    await readSmall(this.env, meta.object_key),
-                ).versioning?.snapshotVersions?.snapshotVersion.map((item) => item.value) ?? [];
+            let values = retainedValues.get(c.versionPath);
+            if (!values) {
+                const meta = await this.env.DB.prepare(
+                    "SELECT * FROM files WHERE repository_id=? AND path=?",
+                )
+                    .bind(repoId, c.versionPath + "/maven-metadata.xml")
+                    .first<FileRow>();
+                if (!meta) continue;
+                values =
+                    parseMetadata(
+                        await readSmall(this.env, meta.object_key),
+                    ).versioning?.snapshotVersions?.snapshotVersion.map((item) => item.value) ?? [];
+                retainedValues.set(c.versionPath, values);
+            }
             if (!values.includes(c.value)) removable.push(file);
         }
         if (removable.length)

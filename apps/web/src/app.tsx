@@ -1,5 +1,6 @@
 import * as stylex from "@stylexjs/stylex";
 import { createContext, useContext, useState } from "react";
+import { useMutation } from "@tanstack/react-query";
 import { Link, NavLink, Navigate, Route, Routes, useNavigate, useParams } from "react-router";
 import { z } from "zod";
 import { accountSchema, configSchema, meSchema, type Account } from "@maven-r2/contracts/schemas";
@@ -63,6 +64,13 @@ export function App() {
         me = useApi("/api/me", meSchema),
         accounts = useApi("/api/accounts", z.array(accountSchema));
     const [creating, setCreating] = useState(false);
+    const signIn = useMutation({
+        mutationFn: async (provider: "github" | "oidc") => {
+            const result = await authClient.signIn.social({ provider, callbackURL: location.href });
+            if (result.error)
+                throw new Error(result.error.message ?? "Unable to sign in. Please try again.");
+        },
+    });
     if (config.isPending || accounts.isPending || me.isPending) return <Loading />;
     if (!config.data || !accounts.data)
         return (
@@ -121,12 +129,8 @@ export function App() {
                             <Button
                                 small
                                 primary
-                                onClick={() =>
-                                    void authClient.signIn.social({
-                                        provider,
-                                        callbackURL: location.href,
-                                    })
-                                }
+                                disabled={signIn.isPending}
+                                onClick={() => signIn.mutate(provider)}
                             >
                                 {provider === "github" ? "Sign in with GitHub" : "Sign in"}
                             </Button>
@@ -135,6 +139,7 @@ export function App() {
                 </div>
             </header>
             <main {...stylex.props(styles.main)}>
+                <ErrorNotice error={signIn.error} />
                 <Routes>
                     <Route
                         path="/"

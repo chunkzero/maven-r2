@@ -234,16 +234,43 @@ try {
     page.on("pageerror", (error) => errors.push(error.message));
     await page.goto(origin + "/test");
     await expect(page.getByRole("heading", { name: "Repositories", exact: true })).toBeVisible();
-    await expect(page.getByRole("link", { name: /Releases test\/releases/ })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Releases", exact: true })).toBeVisible();
     const screenshots = join(root, ".artifacts");
     await mkdir(screenshots, { recursive: true });
     await page.screenshot({ path: join(screenshots, "repositories.png"), fullPage: true });
     await page.goto(origin + "/test/repositories/releases?prefix=com/example/mavenr2/core/1.0.0");
     await expect(page.getByRole("button", { name: "core-1.0.0.pom", exact: true })).toBeVisible();
+    await expect(page.locator("pre").filter({ hasText: "repositories {" })).toContainText(
+        'password = providers.environmentVariable("MAVEN_R2_READ_TOKEN").get()',
+    );
     await page.screenshot({ path: join(screenshots, "artifacts.png"), fullPage: true });
     await page.getByRole("button", { name: "core-1.0.0.pom", exact: true }).click();
     await expect(page.getByRole("dialog")).toContainText("SHA-256");
+    const detailDownload = page.waitForEvent("download");
+    await page.getByRole("dialog").getByRole("link", { name: "Download", exact: true }).click();
+    assert.equal((await detailDownload).suggestedFilename(), "core-1.0.0.pom");
     await page.getByRole("button", { name: "Close dialog" }).click();
+    const rowDownload = page.waitForEvent("download");
+    await page.getByRole("link", { name: "Download core-1.0.0.pom", exact: true }).click();
+    assert.equal((await rowDownload).suggestedFilename(), "core-1.0.0.pom");
+
+    await sql(`
+        WITH RECURSIVE fixture(n) AS (VALUES(1) UNION ALL SELECT n+1 FROM fixture WHERE n<501)
+        INSERT INTO files (repository_id,path,object_key,size,sha256,checksums,publication_id,updated_at)
+        SELECT repository_id,'zz/qa/1.0/qa-1.0-' || n || '.pom',object_key,size,sha256,checksums,publication_id,updated_at
+        FROM files CROSS JOIN fixture WHERE path='com/example/mavenr2/core/1.0.0/core-1.0.0.pom';
+    `);
+    await page.goto(origin + "/test/repositories/releases");
+    await page.getByRole("button", { name: "Next page", exact: true }).click();
+    await expect(page).toHaveURL(/after=/);
+    await page.getByRole("searchbox", { name: "Search artifact paths" }).fill("core-1.0.0.pom");
+    await expect(
+        page.getByRole("button", {
+            name: "com/example/mavenr2/core/1.0.0/core-1.0.0.pom",
+            exact: true,
+        }),
+    ).toBeVisible();
+    assert.equal(new URL(page.url()).searchParams.has("after"), false);
     await page.goto(origin + "/test/tokens");
     await page.getByRole("button", { name: "Create token", exact: true }).click();
     const dialog = page.getByRole("dialog");
@@ -263,6 +290,37 @@ try {
         await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
         "Mobile page overflows horizontally",
     );
+    await page.getByRole("button", { name: "Sign out", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Sign out", exact: true })).toHaveCount(0);
+    const config = await json("/api/config");
+    for (const provider of ["oidc", "github"]) {
+        await page.route("**/api/config", (route) =>
+            route.fulfill({
+                json: {
+                    ...config,
+                    githubEnabled: provider === "github",
+                    oidcEnabled: provider === "oidc",
+                },
+            }),
+        );
+        const endpoint = "/api/auth/sign-in/social";
+        await page.route("**" + endpoint, (route) =>
+            route.fulfill({ status: 503, json: { message: "Sign-in provider is unavailable." } }),
+        );
+        await page.reload();
+        const signIn = page.waitForRequest(
+            (request) => new URL(request.url()).pathname === endpoint,
+        );
+        await page.getByRole("button", { name: /Sign in/ }).click();
+        assert.deepEqual((await signIn).postDataJSON(), {
+            provider,
+            callbackURL: page.url(),
+        });
+        await expect(page.getByRole("alert")).toHaveText("Sign-in provider is unavailable.");
+        await expect(page.getByRole("button", { name: /Sign in/ })).toBeEnabled();
+        await page.unroute("**/api/config");
+        await page.unroute("**" + endpoint);
+    }
     assert.deepEqual(errors, []);
     console.log(
         "Passed: four publications, four direct resolution builds, and browser management checks.",

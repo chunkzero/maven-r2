@@ -314,10 +314,17 @@ export function registerPublications(app: OpenAPIHono<AppEnv>) {
             ).uploadPart(part, stream);
             etag = result.etag;
         } else {
-            const result = await c.env.BUCKET.put(upload.object_key, stream, {
-                onlyIf: { etagDoesNotMatch: "*" },
-                sha256: upload.sha256,
-            });
+            let result: R2Object | null;
+            try {
+                result = await c.env.BUCKET.put(upload.object_key, stream, {
+                    onlyIf: { etagDoesNotMatch: "*" },
+                    sha256: upload.sha256,
+                });
+            } catch (error) {
+                if (/checksum|sha-?256/i.test(String(error)))
+                    fail(400, "Artifact checksum mismatch");
+                throw error;
+            }
             etag = result?.etag ?? (await c.env.BUCKET.head(upload.object_key))!.etag;
         }
         await c.env.DB.prepare(

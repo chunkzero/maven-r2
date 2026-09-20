@@ -390,12 +390,38 @@ export async function initiateUpload(
         input.size > MAX_METADATA_SIZE
     )
         fail(413, "Metadata exceeds the size limit");
-    const existing = await env.DB.prepare("SELECT * FROM uploads WHERE publication_id=? AND path=?")
+    let existing = await env.DB.prepare("SELECT * FROM uploads WHERE publication_id=? AND path=?")
         .bind(session.id, path)
         .first<UploadRow>();
-    if (existing) {
-        if (existing.sha256 !== input.sha256 || existing.size !== input.size)
+    if (existing && (existing.sha256 !== input.sha256 || existing.size !== input.size)) {
+        // Maven re-uploads group metadata as each reactor module merges its plugin prefix.
+        if (!isMetadata(checksumBase(path)?.path ?? path))
             fail(409, "This path already has different content in the publication");
+        const key = `objects/${repo.account_id}/${crypto.randomUUID()}`;
+        await reserve(env, [
+            env.DB.prepare("UPDATE accounts SET reserved_bytes=reserved_bytes+? WHERE id=?").bind(
+                input.size - existing.size,
+                repo.account_id,
+            ),
+            env.DB.prepare(
+                "INSERT OR REPLACE INTO garbage (object_key,multipart_id,not_before) VALUES (?,?,?)",
+            ).bind(existing.object_key, existing.multipart_id, Date.now() + 60_000),
+            env.DB.prepare("DELETE FROM upload_parts WHERE upload_id=?").bind(existing.id),
+            env.DB.prepare(
+                "UPDATE uploads SET object_key=?,size=?,sha256=?,status='pending',multipart_id=NULL,checksums=NULL WHERE id=?",
+            ).bind(key, input.size, input.sha256, existing.id),
+        ]);
+        existing = {
+            ...existing,
+            object_key: key,
+            size: input.size,
+            sha256: input.sha256,
+            status: "pending",
+            multipart_id: null,
+            checksums: null,
+        };
+    }
+    if (existing) {
         if (existing.status === "pending" && existing.size > PART_SIZE && !existing.multipart_id) {
             const multipart = await env.BUCKET.createMultipartUpload(existing.object_key);
             existing.multipart_id = multipart.uploadId;
@@ -424,20 +450,15 @@ export async function initiateUpload(
         multipart_id: null,
         checksums: null,
     };
-    try {
-        await env.DB.batch([
-            env.DB.prepare("UPDATE accounts SET reserved_bytes=reserved_bytes+? WHERE id=?").bind(
-                input.size,
-                repo.account_id,
-            ),
-            env.DB.prepare(
-                "INSERT INTO uploads (id,publication_id,path,object_key,size,sha256,status) VALUES (?,?,?,?,?,?,'pending')",
-            ).bind(id, session.id, path, key, input.size, input.sha256),
-        ]);
-    } catch (error) {
-        if (String(error).includes("CHECK constraint")) fail(413, "Account storage quota exceeded");
-        throw error;
-    }
+    await reserve(env, [
+        env.DB.prepare("UPDATE accounts SET reserved_bytes=reserved_bytes+? WHERE id=?").bind(
+            input.size,
+            repo.account_id,
+        ),
+        env.DB.prepare(
+            "INSERT INTO uploads (id,publication_id,path,object_key,size,sha256,status) VALUES (?,?,?,?,?,?,'pending')",
+        ).bind(id, session.id, path, key, input.size, input.sha256),
+    ]);
     if (input.size > PART_SIZE) {
         const multipart = await env.BUCKET.createMultipartUpload(key);
         upload.multipart_id = multipart.uploadId;
@@ -446,4 +467,12 @@ export async function initiateUpload(
             .run();
     }
     return uploadView(env, upload);
+}
+async function reserve(env: Env, statements: D1PreparedStatement[]) {
+    try {
+        await env.DB.batch(statements);
+    } catch (error) {
+        if (String(error).includes("CHECK constraint")) fail(413, "Account storage quota exceeded");
+        throw error;
+    }
 }

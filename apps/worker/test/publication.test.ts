@@ -155,6 +155,34 @@ describe("publication and Maven protocol", () => {
             404,
         );
     });
+    it("lets reactor builds re-stage group metadata while artifacts stay fixed", async () => {
+        const session = await begin();
+        await stage(session.id, "com/acme/demo/1.0/demo-1.0.pom", pom("1.0"));
+        await stage(session.id, "com/acme/demo/1.0/demo-1.0.jar", "artifact");
+        const plugins = (prefixes: string[]) =>
+            `<metadata><plugins>${prefixes
+                .map(
+                    (prefix) =>
+                        `<plugin><prefix>${prefix}</prefix><artifactId>demo</artifactId></plugin>`,
+                )
+                .join("")}</plugins></metadata>`;
+        await stage(session.id, "com/acme/maven-metadata.xml", plugins(["one"]));
+        await stage(session.id, "com/acme/maven-metadata.xml", plugins(["one", "two"]));
+        const conflict = await request(`/api/publications/${session.id}/uploads`, "POST", {
+            path: "com/acme/demo/1.0/demo-1.0.jar",
+            size: 9,
+            sha256: "0".repeat(64),
+        });
+        expect(conflict.status).toBe(409);
+        await json(await request(`/api/publications/${session.id}/commit`, "POST"));
+        const metadata = parseMetadata(
+            await (await request("/maven/test/releases/com/acme/maven-metadata.xml")).text(),
+        );
+        expect(metadata.plugins?.plugin.map((plugin) => plugin.prefix)).toEqual(["one", "two"]);
+        expect(await env.DB.prepare("SELECT reserved_bytes FROM accounts").first()).toMatchObject({
+            reserved_bytes: 0,
+        });
+    });
     it("resolves timestamped snapshots from server-generated metadata", async () => {
         const session = await begin("snapshots");
         const root = "com/acme/demo/1.0-SNAPSHOT/demo-1.0-20260920.120000-1";

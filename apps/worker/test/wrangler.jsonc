@@ -1,0 +1,25 @@
+{
+    "name": "maven-r2-test",
+    "main": "../src/index.ts",
+    "compatibility_date": "2026-08-15",
+    "compatibility_flags": ["nodejs_compat"],
+    "d1_databases": [{ "binding": "DB", "database_name": "test", "database_id": "test" }],
+    "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "test" }],
+    "durable_objects": {
+        "bindings": [{ "name": "REPOSITORIES", "class_name": "RepositoryCoordinator" }],
+    },
+    "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RepositoryCoordinator"] }],
+    "vars": {
+        "APP_URL": "https://repo.test",
+        "INSTANCE_MODE": "single",
+        "SIGNUP_MODE": "closed",
+        "ALLOW_ACCOUNT_CREATION": "false",
+        "DEFAULT_ACCOUNT_SLUG": "test",
+        "DEFAULT_ACCOUNT_NAME": "Test",
+        "ADMIN_GITHUB_IDS": "42",
+        "MAX_FILE_BYTES": "2147483648",
+        "MAX_ACCOUNT_BYTES": "10737418240",
+        "BETTER_AUTH_SECRET": "test-only-secret-at-least-32-characters-long",
+        "BOOTSTRAP_TOKEN": "test-bootstrap-secret",
+    },
+}

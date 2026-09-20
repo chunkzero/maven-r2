@@ -1,0 +1,28 @@
+CREATE TABLE auth_users (id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE, email_verified INTEGER NOT NULL, image TEXT, github_id TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+CREATE TABLE auth_sessions (id TEXT PRIMARY KEY, token TEXT NOT NULL UNIQUE, user_id TEXT NOT NULL REFERENCES auth_users(id) ON DELETE CASCADE, expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, ip_address TEXT, user_agent TEXT);
+CREATE INDEX auth_sessions_user ON auth_sessions(user_id);
+CREATE TABLE auth_accounts (id TEXT PRIMARY KEY, account_id TEXT NOT NULL, provider_id TEXT NOT NULL, user_id TEXT NOT NULL REFERENCES auth_users(id) ON DELETE CASCADE, access_token TEXT, refresh_token TEXT, id_token TEXT, access_token_expires_at INTEGER, refresh_token_expires_at INTEGER, scope TEXT, password TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, UNIQUE(provider_id, account_id));
+CREATE INDEX auth_accounts_user ON auth_accounts(user_id);
+CREATE TABLE auth_verifications (id TEXT PRIMARY KEY, identifier TEXT NOT NULL, value TEXT NOT NULL, expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+CREATE INDEX auth_verifications_identifier ON auth_verifications(identifier);
+
+CREATE TABLE accounts (id TEXT PRIMARY KEY, slug TEXT NOT NULL UNIQUE, name TEXT NOT NULL, used_bytes INTEGER NOT NULL DEFAULT 0 CHECK(used_bytes >= 0), reserved_bytes INTEGER NOT NULL DEFAULT 0 CHECK(reserved_bytes >= 0), max_bytes INTEGER NOT NULL CHECK(max_bytes > 0), suspended INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, CHECK(used_bytes + reserved_bytes <= max_bytes));
+CREATE TABLE members (account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, user_id TEXT NOT NULL REFERENCES auth_users(id) ON DELETE CASCADE, role TEXT NOT NULL CHECK(role IN ('owner','admin','publisher','reader')), PRIMARY KEY(account_id,user_id));
+CREATE INDEX members_user ON members(user_id);
+CREATE TABLE repositories (id TEXT PRIMARY KEY, account_id TEXT NOT NULL REFERENCES accounts(id), slug TEXT NOT NULL, name TEXT NOT NULL, visibility TEXT NOT NULL CHECK(visibility IN ('public','private')), policy TEXT NOT NULL CHECK(policy IN ('releases','snapshots','mixed')), max_file_bytes INTEGER NOT NULL, retention_days INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, UNIQUE(account_id,slug));
+CREATE TABLE service_accounts (id TEXT PRIMARY KEY, account_id TEXT NOT NULL REFERENCES accounts(id), name TEXT NOT NULL, role TEXT NOT NULL CHECK(role IN ('publisher','reader')), disabled INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE tokens (id TEXT PRIMARY KEY, account_id TEXT NOT NULL REFERENCES accounts(id), user_id TEXT REFERENCES auth_users(id), service_account_id TEXT REFERENCES service_accounts(id), name TEXT NOT NULL, prefix TEXT NOT NULL, hash TEXT NOT NULL UNIQUE, scopes TEXT NOT NULL, expires_at INTEGER, last_used_at INTEGER, created_at INTEGER NOT NULL, revoked INTEGER NOT NULL DEFAULT 0, CHECK((user_id IS NULL) != (service_account_id IS NULL)));
+CREATE INDEX tokens_account ON tokens(account_id);
+CREATE TABLE invitations (id TEXT PRIMARY KEY, account_id TEXT NOT NULL REFERENCES accounts(id), email TEXT NOT NULL, role TEXT NOT NULL CHECK(role IN ('admin','publisher','reader')), secret_hash TEXT NOT NULL UNIQUE, expires_at INTEGER NOT NULL, accepted INTEGER NOT NULL DEFAULT 0);
+CREATE INDEX invitations_email ON invitations(email,expires_at);
+CREATE TABLE publications (id TEXT PRIMARY KEY, repository_id TEXT NOT NULL REFERENCES repositories(id), actor TEXT NOT NULL, token_id TEXT REFERENCES tokens(id), status TEXT NOT NULL CHECK(status IN ('open','committed','aborted')), label TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, committed_at INTEGER);
+CREATE INDEX publications_repository ON publications(repository_id,created_at DESC);
+CREATE INDEX publications_expiry ON publications(status,expires_at);
+CREATE TABLE uploads (id TEXT PRIMARY KEY, publication_id TEXT NOT NULL REFERENCES publications(id), path TEXT NOT NULL, object_key TEXT NOT NULL UNIQUE, size INTEGER NOT NULL CHECK(size >= 0), sha256 TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('pending','complete')), multipart_id TEXT, checksums TEXT, UNIQUE(publication_id,path));
+CREATE TABLE upload_parts (upload_id TEXT NOT NULL REFERENCES uploads(id) ON DELETE CASCADE, number INTEGER NOT NULL, etag TEXT NOT NULL, size INTEGER NOT NULL, PRIMARY KEY(upload_id,number));
+CREATE TABLE files (repository_id TEXT NOT NULL REFERENCES repositories(id), path TEXT NOT NULL, object_key TEXT NOT NULL, size INTEGER NOT NULL, sha256 TEXT NOT NULL, checksums TEXT NOT NULL, publication_id TEXT NOT NULL REFERENCES publications(id), updated_at INTEGER NOT NULL, PRIMARY KEY(repository_id,path));
+CREATE INDEX files_publication ON files(publication_id);
+CREATE TABLE garbage (object_key TEXT PRIMARY KEY, multipart_id TEXT, not_before INTEGER NOT NULL);
+CREATE TABLE audit_events (id TEXT PRIMARY KEY, account_id TEXT NOT NULL REFERENCES accounts(id), actor TEXT NOT NULL, action TEXT NOT NULL, target TEXT NOT NULL, created_at INTEGER NOT NULL);
+CREATE INDEX audit_account ON audit_events(account_id,created_at DESC);
+CREATE TABLE rate_limits (key TEXT PRIMARY KEY, count INTEGER NOT NULL, expires_at INTEGER NOT NULL);

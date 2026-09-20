@@ -157,6 +157,8 @@ publishing {
 }
 ```
 
+The proxy answers each upload only after the file is staged remotely. Gradle's HTTP client gives up after 30 seconds by default, so set `systemProp.org.gradle.internal.http.socketTimeout` in `gradle.properties` to cover your largest artifact, as the Gradle example does. Maven's default timeout is long enough.
+
 For Maven, point both `distributionManagement.repository` and `snapshotRepository` at `${env.MAVEN_R2_URL}`, using a server ID with credentials from those environment variables. Complete multi-module examples are in [`examples/gradle`](examples/gradle) and [`examples/maven`](examples/maven). The Maven example uses the Flatten Maven Plugin to resolve `${revision}` in published POM coordinates.
 
 In CI, set `MAVEN_R2_SERVER` and `MAVEN_R2_TOKEN` as environment variables and run the same `publish` command. Use a service-account token scoped to the repository and namespace being built. Profiles live in the OS user configuration directory with owner-only file permissions on Unix; `MAVEN_R2_CONFIG` overrides the file location. HTTPS is required except for loopback development origins.

@@ -232,19 +232,19 @@ try {
     const page = await context.newPage(),
         errors = [];
     page.on("pageerror", (error) => errors.push(error.message));
-    await page.goto(origin + "/a/test");
+    await page.goto(origin + "/test");
     await expect(page.getByRole("heading", { name: "Repositories", exact: true })).toBeVisible();
     await expect(page.getByRole("link", { name: /Releases test\/releases/ })).toBeVisible();
     const screenshots = join(root, ".artifacts");
     await mkdir(screenshots, { recursive: true });
     await page.screenshot({ path: join(screenshots, "repositories.png"), fullPage: true });
-    await page.goto(origin + "/a/test/repositories/releases?prefix=com/example/mavenr2/core/1.0.0");
+    await page.goto(origin + "/test/repositories/releases?prefix=com/example/mavenr2/core/1.0.0");
     await expect(page.getByRole("button", { name: "core-1.0.0.pom", exact: true })).toBeVisible();
     await page.screenshot({ path: join(screenshots, "artifacts.png"), fullPage: true });
     await page.getByRole("button", { name: "core-1.0.0.pom", exact: true }).click();
     await expect(page.getByRole("dialog")).toContainText("SHA-256");
     await page.getByRole("button", { name: "Close dialog" }).click();
-    await page.goto(origin + "/a/test/tokens");
+    await page.goto(origin + "/test/tokens");
     await page.getByRole("button", { name: "Create token", exact: true }).click();
     const dialog = page.getByRole("dialog");
     await dialog.getByLabel("Token name").fill("Browser verification");
@@ -256,7 +256,7 @@ try {
     await page.getByRole("button", { name: "Revoke token", exact: true }).click();
     await expect(page.getByText("Revoked", { exact: true })).toBeVisible();
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto(origin + "/a/test");
+    await page.goto(origin + "/test");
     await expect(page.getByRole("heading", { name: "Repositories", exact: true })).toBeVisible();
     await page.screenshot({ path: join(screenshots, "mobile.png"), fullPage: true });
     assert.ok(

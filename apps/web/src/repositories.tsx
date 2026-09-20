@@ -263,7 +263,7 @@ export function RepositoryBrowser() {
             <PageHeader
                 title={
                     <>
-                        <Link to={`/a/${account.slug}`}>Repositories</Link> / {repo?.name ?? slug}
+                        <Link to={`/${account.slug}`}>Repositories</Link> / {repo?.name ?? slug}
                     </>
                 }
             >

@@ -28,7 +28,7 @@ export function App() {
             </main>
         );
     const user = me.data?.user ?? null;
-    const home = accounts.data[0] ? `/a/${accounts.data[0].slug}` : "/welcome";
+    const home = accounts.data[0] ? `/${accounts.data[0].slug}` : "/welcome";
     const create =
         user &&
         config.data.instanceMode === "multi" &&
@@ -44,7 +44,7 @@ export function App() {
                 </Link>
                 <Routes>
                     <Route
-                        path="/a/:account/*"
+                        path="/:account/*"
                         element={<Nav accounts={accounts.data} onCreate={create} />}
                     />
                     <Route path="*" element={null} />
@@ -90,7 +90,7 @@ export function App() {
             <main>
                 <Routes>
                     <Route
-                        path="/a/:account/*"
+                        path="/:account/*"
                         element={<AccountRoutes accounts={accounts.data} user={user} />}
                     />
                     <Route path="/invite/:secret" element={<Invite user={user} />} />
@@ -124,7 +124,7 @@ function Nav({ accounts, onCreate }: { accounts: Account[]; onCreate?: () => voi
     const { account: slug = "" } = useParams(),
         navigate = useNavigate();
     const account = accounts.find((account) => account.slug === slug),
-        base = `/a/${slug}`;
+        base = `/${slug}`;
     const admin = account?.role === "owner" || account?.role === "admin";
     return (
         <nav className="nav">
@@ -132,7 +132,7 @@ function Nav({ accounts, onCreate }: { accounts: Account[]; onCreate?: () => voi
                 <select
                     aria-label="Workspace"
                     value={slug}
-                    onChange={(e) => navigate(`/a/${e.target.value}`)}
+                    onChange={(e) => navigate(`/${e.target.value}`)}
                 >
                     {accounts.map((account) => (
                         <option key={account.id} value={account.slug}>
@@ -179,7 +179,7 @@ function AccountRoutes({ accounts, user }: { accounts: Account[]; user: User }) 
                 <Route path="members" element={<Members />} />
                 <Route path="audit" element={<Audit />} />
                 <Route path="settings" element={<AccountSettings />} />
-                <Route path="*" element={<Navigate to={`/a/${account.slug}`} replace />} />
+                <Route path="*" element={<Navigate to={`/${account.slug}`} replace />} />
             </Routes>
         </Workspace.Provider>
     );
@@ -192,7 +192,7 @@ function CreateAccount({ close }: { close: () => void }) {
         () => api("/api/accounts", accountSchema, "POST", { name, slug }),
         () => {
             close();
-            navigate(`/a/${slug}`);
+            navigate(`/${slug}`);
         },
     );
     return (

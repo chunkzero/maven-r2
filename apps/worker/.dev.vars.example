@@ -1,0 +1,5 @@
+# Development only. Generate new secrets for every deployed instance.
+BETTER_AUTH_SECRET=local-development-only-replace-before-deploy-32-chars
+BOOTSTRAP_TOKEN=local-bootstrap-only-replace-before-deploy
+GITHUB_CLIENT_ID=
+GITHUB_CLIENT_SECRET=

@@ -1,0 +1,25 @@
+{
+    "name": "@maven-r2/web",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "dev": "vp dev --host 127.0.0.1",
+        "build": "vp build",
+        "typecheck": "tsc -p tsconfig.json"
+    },
+    "dependencies": {
+        "@maven-r2/contracts": "workspace:*",
+        "@tanstack/react-query": "5.103.1",
+        "better-auth": "1.7.5",
+        "lucide-react": "1.47.0",
+        "react": "19.3.0",
+        "react-dom": "19.3.0",
+        "react-router": "8.4.0",
+        "zod": "4.6.5"
+    },
+    "devDependencies": {
+        "@types/react": "^19.0.0",
+        "@types/react-dom": "^19.0.0",
+        "@vitejs/plugin-react": "6.1.1"
+    }
+}

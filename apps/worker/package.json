@@ -1,0 +1,29 @@
+{
+    "name": "@maven-r2/worker",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "dev": "wrangler dev --port 8787",
+        "build": "wrangler deploy --dry-run --outdir dist",
+        "deploy": "wrangler deploy",
+        "typecheck": "tsc -p tsconfig.json",
+        "test": "vp test run",
+        "db:migrate": "wrangler d1 migrations apply DB --local"
+    },
+    "dependencies": {
+        "@better-auth/drizzle-adapter": "1.7.5",
+        "@hono/zod-openapi": "1.6.3",
+        "@maven-r2/contracts": "workspace:*",
+        "better-auth": "1.7.5",
+        "drizzle-orm": "0.45.2",
+        "fast-xml-parser": "5.11.1",
+        "hono": "4.13.8",
+        "zod": "4.6.5"
+    },
+    "devDependencies": {
+        "@cloudflare/vitest-pool-workers": "0.22.0",
+        "@cloudflare/workers-types": "5.20260920.1",
+        "vitest": "4.1.11",
+        "wrangler": "4.135.0"
+    }
+}

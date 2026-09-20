@@ -148,11 +148,14 @@ func (*ProfilesCmd) Run() error {
 }
 
 type RepositoryFlags struct {
-	Repository string `required:"" help:"Account/repository, for example acme/releases."`
+	Repository string `help:"Account/repository, for example acme/releases."`
 	Label      string `help:"Label shown in publication history."`
 }
 
 func (flags RepositoryFlags) begin(ctx context.Context, c *client.Client) (api.Publication, error) {
+	if flags.Repository == "" {
+		return api.Publication{}, fmt.Errorf("--repository is required")
+	}
 	parts := strings.Split(flags.Repository, "/")
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 		return api.Publication{}, fmt.Errorf("repository must be account/repository")
@@ -194,8 +197,20 @@ func (cmd *PublishCmd) Run(cli *CLI) error {
 		return fmt.Errorf("publication is %s", publication.Status)
 	}
 	logger := log.New(os.Stderr, "maven-r2: ", 0)
+	abort := func() {
+		if cmd.KeepOnFailure {
+			logger.Printf("kept publication %s; resume it or use session abort", publication.Id)
+			return
+		}
+		abortCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if abortErr := c.Abort(abortCtx, publication.Id); abortErr != nil {
+			logger.Printf("could not abort %s: %v", publication.Id, abortErr)
+		}
+	}
 	local := &proxy.Server{Client: c, Session: publication.Id, MaxFileBytes: cmd.MaxFileBytes, Log: logger}
 	if err = local.Start(); err != nil {
+		abort()
 		return err
 	}
 	defer func() {
@@ -209,24 +224,28 @@ func (cmd *PublishCmd) Run(cli *CLI) error {
 	child.Stdout = os.Stdout
 	child.Stderr = os.Stderr
 	child.WaitDelay = 5 * time.Second
+	// Let the build tool shut down cleanly on Ctrl-C instead of being killed outright.
+	child.Cancel = func() error {
+		if err := child.Process.Signal(syscall.SIGTERM); err != nil {
+			return child.Process.Kill()
+		}
+		return nil
+	}
 	child.Env = buildEnvironment(local)
 	err = child.Run()
 	if err == nil {
 		err = local.Failure()
 	}
 	if err != nil {
-		if cmd.KeepOnFailure {
-			logger.Printf("kept publication %s; resume it or use session abort", publication.Id)
-		} else {
-			abortCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-			defer cancel()
-			if abortErr := c.Abort(abortCtx, publication.Id); abortErr != nil {
-				logger.Printf("could not abort %s: %v", publication.Id, abortErr)
-			}
-		}
+		abort()
 		return fmt.Errorf("build did not publish: %w", err)
 	}
 	if _, err = c.Commit(ctx, publication.Id); err != nil {
+		var upstream *client.HTTPError
+		if errors.As(err, &upstream) && upstream.Status < 500 && upstream.Status != 429 {
+			abort()
+			return fmt.Errorf("publication rejected: %w", err)
+		}
 		return fmt.Errorf("finalization failed for %s; retry with session commit %s: %w", publication.Id, publication.Id, err)
 	}
 	logger.Printf("published %s", publication.Id)

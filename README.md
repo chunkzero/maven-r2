@@ -163,7 +163,7 @@ For Maven, point both `distributionManagement.repository` and `snapshotRepositor
 
 In CI, set `MAVEN_R2_SERVER` and `MAVEN_R2_TOKEN` as environment variables and run the same `publish` command. Use a service-account token scoped to the repository and namespace being built. Profiles live in the OS user configuration directory with owner-only file permissions on Unix; `MAVEN_R2_CONFIG` overrides the file location. HTTPS is required except for loopback development origins.
 
-Failed builds abort their publication by default. `--keep-on-failure` preserves it for inspection. A failed finalization leaves the session open and prints its ID so the validated uploads can be retried:
+Failed builds and publications the server rejects during validation abort by default. `--keep-on-failure` preserves them for inspection. A finalization that fails for transient reasons, such as a network or server error, leaves the session open and prints its ID so the validated uploads can be retried:
 
 ```sh
 maven-r2 session status SESSION_ID
@@ -171,7 +171,7 @@ maven-r2 session commit SESSION_ID
 maven-r2 session abort SESSION_ID
 ```
 
-`session begin --repository acme/releases` and `serve --session SESSION_ID --env-file local.env` support explicit sessions. Source that environment file with exported variables in the build shell; commit explicitly afterward. The file is removed when `serve` exits. `publish --session SESSION_ID --repository acme/releases -- COMMAND` can retry an existing build if each previously staged path still has identical content. Rebuilt artifacts with different bytes require a new session. Sessions expire after 24 hours.
+`session begin --repository acme/releases` and `serve --session SESSION_ID --env-file local.env` support explicit sessions. Source that environment file with exported variables in the build shell; commit explicitly afterward. The file is removed when `serve` exits. `publish --session SESSION_ID -- COMMAND` can retry an existing build if each previously staged path still has identical content. Rebuilt artifacts with different bytes require a new session. Sessions expire after 24 hours.
 
 ## Downloading
 

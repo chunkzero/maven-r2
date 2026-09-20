@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -141,7 +142,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			s.failedPaths[path] = err
 			s.mu.Unlock()
 			status := http.StatusBadGateway
-			if upstream, ok := err.(*client.HTTPError); ok {
+			var upstream *client.HTTPError
+			if errors.As(err, &upstream) {
 				status = upstream.Status
 			}
 			if s.Log != nil {

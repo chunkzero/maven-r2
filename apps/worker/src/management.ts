@@ -147,7 +147,7 @@ export function registerManagement(app: OpenAPIHono<AppEnv>) {
                                     (scope) => scope.repository === repo.slug,
                                 ))),
                 )
-                .map(repositoryView),
+                .map((repo) => repositoryView(c.env, account.slug, repo)),
         );
     });
     app.post("/api/accounts/:account/repositories", async (c) => {
@@ -186,7 +186,11 @@ export function registerManagement(app: OpenAPIHono<AppEnv>) {
             throw error;
         }
         return c.json(
-            repositoryView((await getRepository(c.env, account.slug, input.slug)).repository),
+            repositoryView(
+                c.env,
+                account.slug,
+                (await getRepository(c.env, account.slug, input.slug)).repository,
+            ),
             201,
         );
     });
@@ -220,7 +224,11 @@ export function registerManagement(app: OpenAPIHono<AppEnv>) {
             ),
         ]);
         return c.json(
-            repositoryView((await getRepository(c.env, account.slug, repository.slug)).repository),
+            repositoryView(
+                c.env,
+                account.slug,
+                (await getRepository(c.env, account.slug, repository.slug)).repository,
+            ),
         );
     });
     app.get("/api/accounts/:account/repositories/:repository/files", async (c) => {
@@ -585,7 +593,14 @@ export function registerManagement(app: OpenAPIHono<AppEnv>) {
             ),
             audit(c.env, account.id, c.get("principal")!.actor, "invitation.created", id),
         ]);
-        return c.json({ id, url: c.env.APP_URL + "/invite/" + secret, expiresAt: expires }, 201);
+        return c.json(
+            {
+                id,
+                url: new URL("/console/invite/" + secret, c.env.APP_URL).href,
+                expiresAt: expires,
+            },
+            201,
+        );
     });
     app.delete("/api/accounts/:account/invitations/:id", async (c) => {
         const account = await getAccount(c.env, c.req.param("account"));

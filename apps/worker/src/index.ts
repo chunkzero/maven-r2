@@ -11,6 +11,7 @@ import { registerPublications } from "./publications";
 import { registerDownloads } from "./downloads";
 import { registerBootstrap } from "./bootstrap";
 import { cleanup } from "./cleanup";
+import { matchRepositoryMapping } from "./repository-mappings";
 export { RepositoryCoordinator } from "./coordinator";
 
 export const app = new OpenAPIHono<AppEnv>({
@@ -39,8 +40,9 @@ app.use(
 app.use("*", async (c, next) => {
     c.set("requestId", crypto.randomUUID());
     c.header("x-request-id", c.get("requestId"));
+    c.set("repositoryMapping", matchRepositoryMapping(c.env, new URL(c.req.url)));
     await next();
-    if (c.res.status === 401 && c.req.path.startsWith("/maven/"))
+    if (c.res.status === 401 && (c.req.path.startsWith("/maven/") || c.get("repositoryMapping")))
         c.header("www-authenticate", 'Basic realm="Maven R2"');
 });
 app.use("/api/*", async (c, next) => {
@@ -84,6 +86,7 @@ app.get("/health", async (c) => {
 registerBootstrap(app);
 registerManagement(app);
 registerPublications(app);
+app.get("/", (c) => c.redirect("/console"));
 registerDownloads(app);
 app.openAPIRegistry.registerComponent("securitySchemes", "bearerAuth", {
     type: "http",
@@ -95,10 +98,16 @@ app.doc("/api/openapi.json", {
 });
 app.all("/api/*", (c) => c.json({ error: "Not found" }, 404));
 app.all("/maven/*", (c) => c.json({ error: "Publish through the local maven-r2 proxy" }, 405));
-app.get("*", async (c) => {
-    const response = await c.env.ASSETS.fetch(c.req.raw);
+app.get("/invite/:secret", (c) => c.redirect("/console" + c.req.path));
+app.on(["GET", "HEAD"], ["/console", "/console/*"], async (c) => {
+    const url = new URL(c.req.url);
+    url.pathname = url.pathname.startsWith("/console/assets/")
+        ? url.pathname.slice("/console".length)
+        : "/index.html";
+    const response = await c.env.ASSETS.fetch(new Request(url, c.req.raw));
     return new Response(response.body, response);
 });
+app.all("*", (c) => c.json({ error: "Not found" }, 404));
 app.onError((error, c) => {
     const status =
         error instanceof HTTPException ? error.status : error instanceof ZodError ? 400 : 500;

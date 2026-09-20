@@ -220,7 +220,8 @@ export function RepositoryBrowser() {
         [deleting, setDeleting] = useState(false),
         [aborting, setAborting] = useState<string | null>(null);
     const admin = account.role === "owner" || account.role === "admin";
-    const endpoint = `${location.origin}/maven/${account.slug}/${slug}`;
+    const downloadEndpoint = `${location.origin}/maven/${account.slug}/${slug}`;
+    const endpoint = repo?.url ?? downloadEndpoint;
     const parts = prefix.split("/").filter(Boolean);
     const go = (path: string) => {
         setParams(path ? { prefix: path } : {});
@@ -256,7 +257,7 @@ export function RepositoryBrowser() {
         "repositories {",
         "    maven {",
         `        url = uri("${endpoint}")`,
-        ...(location.protocol === "http:" ? ["        isAllowInsecureProtocol = true"] : []),
+        ...(endpoint.startsWith("http:") ? ["        isAllowInsecureProtocol = true"] : []),
         ...(repo?.visibility === "private"
             ? [
                   "        credentials {",
@@ -362,7 +363,7 @@ export function RepositoryBrowser() {
                                 <Td right>
                                     {row.file && (
                                         <a
-                                            href={`${endpoint}/${row.file.path}`}
+                                            href={`${downloadEndpoint}/${row.file.path}`}
                                             download={row.file.path.split("/").at(-1)}
                                             aria-label={`Download ${row.name}`}
                                             {...stylex.props(ui.quietLink)}
@@ -485,7 +486,7 @@ export function RepositoryBrowser() {
                     </dl>
                     <div {...stylex.props(ui.footer)}>
                         <a
-                            href={`${endpoint}/${selected.path}`}
+                            href={`${downloadEndpoint}/${selected.path}`}
                             download={selected.path.split("/").at(-1)}
                             {...stylex.props(ui.button, ui.primary)}
                         >

@@ -22,6 +22,7 @@ export const repositorySchema = z.object({
     id: z.string(),
     accountId: z.string(),
     slug,
+    url: z.url(),
     name: z.string(),
     visibility: z.enum(["public", "private"]),
     policy: z.enum(["releases", "snapshots", "mixed"]),

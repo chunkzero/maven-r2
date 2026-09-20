@@ -3,6 +3,7 @@ import react from "@vitejs/plugin-react";
 import stylex from "@stylexjs/unplugin";
 
 export default defineConfig({
+    base: "/console/",
     plugins: [
         stylex.vite({
             unstable_moduleResolution: {
@@ -16,9 +17,7 @@ export default defineConfig({
         port: 5173,
         strictPort: true,
         proxy: {
-            "/api": "http://127.0.0.1:8787",
-            "/maven": "http://127.0.0.1:8787",
-            "/health": "http://127.0.0.1:8787",
+            "^/(?!console(?:/|$))": "http://127.0.0.1:8787",
         },
     },
 });

@@ -1,6 +1,7 @@
 {
     "name": "@maven-r2/web",
     "private": true,
+    "license": "MIT",
     "type": "module",
     "scripts": {
         "dev": "vp dev --host 127.0.0.1",

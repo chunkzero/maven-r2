@@ -285,11 +285,33 @@ describe("repository URL mappings", () => {
         return {
             ...env,
             REPOSITORY_MAPPINGS: [
-                { url: "https://repo.test/", account: "test", repository: "releases" },
-                { url: "https://repo.test/snapshots/", account: "test", repository: "snapshots" },
+                { url: "/", account: "test", repository: "releases" },
+                { url: "/snapshots/", account: "test", repository: "snapshots" },
             ],
         };
     }
+
+    it("resolves relative mappings against APP_URL and serves public artifacts anonymously", async () => {
+        const session = await release();
+        await json(await request(`/api/publications/${session.id}/commit`, "POST"));
+        await env.DB.prepare("UPDATE repositories SET visibility='public'").run();
+        const mapped = runtime();
+        const path = "/com/acme/demo/1.0/demo-1.0.jar";
+        expect(await (await app.request("https://repo.test" + path, {}, mapped)).text()).toBe(
+            "artifact",
+        );
+        expect((await app.request("https://other.test" + path, {}, mapped)).status).toBe(404);
+        expect((await app.request("https://repo.test/", {}, mapped)).status).toBe(302);
+        expect((await app.request("https://repo.test/snapshots", {}, mapped)).status).toBe(404);
+        expect(
+            await json(
+                await app.request("https://repo.test/api/accounts/test/repositories", {}, mapped),
+            ),
+        ).toMatchObject([
+            { slug: "releases", url: "https://repo.test" },
+            { slug: "snapshots", url: "https://repo.test/snapshots" },
+        ]);
+    });
 
     it("serves root and snapshot aliases with the existing Maven download semantics", async () => {
         const releaseSession = await release();
@@ -465,6 +487,11 @@ describe("repository URL mappings", () => {
             "https://repo.test/releases?token=secret",
             "https://user:secret@repo.test",
             "http://repo.test",
+            "/api",
+            "/console/releases",
+            "snapshots",
+            "//evil.test/releases",
+            "/releases?token=secret",
         ]) {
             expect(() =>
                 matchRepositoryMapping(
@@ -482,7 +509,7 @@ describe("repository URL mappings", () => {
                     ...env,
                     REPOSITORY_MAPPINGS: [
                         { url: "https://repo.test/", account: "test", repository: "releases" },
-                        { url: "https://repo.test", account: "test", repository: "snapshots" },
+                        { url: "/", account: "test", repository: "snapshots" },
                     ],
                 },
                 new URL("https://repo.test/com/acme/file.jar"),

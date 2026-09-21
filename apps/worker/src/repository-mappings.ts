@@ -13,7 +13,7 @@ const reservedPaths = new Set([
     "robots.txt",
     ".well-known",
 ]);
-const mappingSchema = z.object({ url: z.url(), account: slug, repository: slug });
+const mappingSchema = z.object({ url: z.string(), account: slug, repository: slug });
 const mappingsSchema = z.array(mappingSchema);
 export type RepositoryMapping = z.infer<typeof mappingSchema>;
 export type MatchedRepository = { account: string; repository: string; path: string };
@@ -21,12 +21,18 @@ export type MatchedRepository = { account: string; repository: string; path: str
 const none: RepositoryMapping[] = [];
 const cache = new WeakMap<RepositoryMapping[], ReturnType<typeof parseMappings>>();
 
-function parseMappings(raw: unknown) {
+// Mapping URLs are either absolute (custom domains) or origin-relative paths resolved against APP_URL.
+function parseMappings(raw: unknown, appUrl: string) {
     const parsed = mappingsSchema.safeParse(raw);
     if (!parsed.success) throw new Error("Invalid REPOSITORY_MAPPINGS configuration");
     const seen = new Set<string>();
     return parsed.data.map((mapping) => {
-        const url = new URL(mapping.url);
+        const relative = /^\/(?!\/)/.test(mapping.url);
+        if (!relative && !URL.canParse(mapping.url))
+            throw new Error(
+                "Repository mapping URLs must be absolute or start with a single slash",
+            );
+        const url = new URL(mapping.url, relative ? appUrl : undefined);
         const path = url.pathname.replace(/\/$/, "");
         const segments = path.split("/").slice(1);
         if (
@@ -56,7 +62,7 @@ function mappings(env: Env) {
     const raw = env.REPOSITORY_MAPPINGS ?? none;
     const cached = cache.get(raw);
     if (cached) return cached;
-    const parsed = parseMappings(raw);
+    const parsed = parseMappings(raw, env.APP_URL);
     cache.set(raw, parsed);
     return parsed;
 }

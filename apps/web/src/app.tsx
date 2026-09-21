@@ -118,7 +118,7 @@ export function App() {
                                 small
                                 onClick={async () => {
                                     await authClient.signOut();
-                                    location.assign("/console");
+                                    location.assign("/#/");
                                 }}
                             >
                                 Sign out

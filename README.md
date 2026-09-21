@@ -47,7 +47,7 @@ mise exec -- pnpm db:migrate
 mise exec -- just dev
 ```
 
-Open **http://localhost:5173/console/**. Vite+ serves the console and forwards other paths to the local Worker on port 8787, including mapped repository URLs. Wrangler emulates D1, R2, and Durable Objects locally. The example secrets are for local development only.
+Open **http://localhost:5173/#/**. Vite+ serves the console page at `/` and forwards other paths to the local Worker on port 8787, including mapped repository URLs. Wrangler emulates D1, R2, and Durable Objects locally. The example secrets are for local development only.
 
 Initialize the local instance once:
 
@@ -221,7 +221,7 @@ Mappings work in both instance modes. Each URL selects exactly one repository. T
 
 Relative URLs start with a single slash. Absolute URLs must use HTTPS, except HTTP on `localhost`, `127.0.0.1`, or `[::1]` for local development. Matching uses the exact origin and the longest matching path prefix at a slash boundary, so `/snapshots` takes precedence over a root mapping. A missing artifact in that repository returns 404 without falling back to another repository. Trailing slashes are optional; duplicate URLs are rejected. `/api`, `/maven`, `/console`, `/health`, `/invite`, `/favicon.ico`, `/robots.txt`, and `/.well-known` are reserved, including their descendants. Nested mappings also reserve their prefixes in the parent mapping; artifacts shadowed by these prefixes remain available at the canonical `/maven/...` URL.
 
-The console lives at `/console` and `/` redirects there. `APP_URL` remains the console's origin, without `/console`; OAuth callback URLs stay under `/api/auth`. Existing invitation links under `/invite` redirect to `/console/invite`. Other old console bookmarks need the `/console` prefix. The console displays the first configured mapping for a repository in copyable URLs and dependency snippets, falling back to its canonical URL when no mapping exists. Browser download buttons use the console origin so session credentials work even when a mapping uses another hostname.
+The console is served from `/` and routes with a URL hash, for example `/#/default/repositories`, so root mappings and console pages share the origin without ambiguity. Its assets stay under `/console/assets/`, and old `/console/...` bookmarks and `/invite` links redirect to the matching `/#/...` route. `APP_URL` is the console's origin; OAuth callback URLs stay under `/api/auth`. The console displays the first configured mapping for a repository in copyable URLs and dependency snippets, falling back to its canonical URL when no mapping exists. Browser download buttons use the console origin so session credentials work even when a mapping uses another hostname.
 
 ## Initial implementation boundaries
 

@@ -301,7 +301,7 @@ describe("repository URL mappings", () => {
             "artifact",
         );
         expect((await app.request("https://other.test" + path, {}, mapped)).status).toBe(404);
-        expect((await app.request("https://repo.test/", {}, mapped)).status).toBe(302);
+        expect((await app.request("https://other.test/", {}, mapped)).status).toBe(302);
         expect((await app.request("https://repo.test/snapshots", {}, mapped)).status).toBe(404);
         expect(
             await json(
@@ -438,25 +438,26 @@ describe("repository URL mappings", () => {
             } as Fetcher,
         };
         expect((await app.request("https://other.test/", {}, mapped)).headers.get("location")).toBe(
-            "https://repo.test/console",
+            "https://repo.test/#/",
         );
-        expect(
-            await (
-                await app.request(
-                    "https://repo.test/console/test/repositories/releases",
-                    {},
-                    mapped,
-                )
-            ).text(),
-        ).toBe("/console/index.html");
+        expect(await (await app.request("https://repo.test/", {}, mapped)).text()).toBe(
+            "/console/index.html",
+        );
         expect(
             await (await app.request("https://repo.test/console/assets/app.js", {}, mapped)).text(),
         ).toBe("/console/assets/app.js");
+        const location = async (url: string) =>
+            (await app.request(url, {}, mapped)).headers.get("location");
+        expect(await location("https://repo.test/console")).toBe("https://repo.test/#/");
         expect(
-            (await app.request("https://other.test/invite/example", {}, mapped)).headers.get(
-                "location",
-            ),
-        ).toBe("https://repo.test/console/invite/example");
+            await location("https://repo.test/console/test/repositories/releases?prefix=com/acme"),
+        ).toBe("https://repo.test/#/test/repositories/releases?prefix=com/acme");
+        expect(await location("https://repo.test/console/invite/example")).toBe(
+            "https://repo.test/#/invite/example",
+        );
+        expect(await location("https://other.test/invite/example")).toBe(
+            "https://repo.test/#/invite/example",
+        );
         const favicon = await app.request("https://repo.test/favicon.ico", {}, mapped);
         expect(favicon.status).toBe(404);
         expect(favicon.headers.has("www-authenticate")).toBe(false);
@@ -652,6 +653,7 @@ describe("account management and lifecycle", () => {
             }),
             201,
         );
+        expect(invitation.url).toMatch(/^https:\/\/repo\.test\/#\/invite\/[^/]+$/);
         const secret = invitation.url.split("/").at(-1);
         expect((await owner("/api/invitations/accept", "POST", { secret })).status).toBe(404);
         await json(await guest("/api/invitations/accept", "POST", { secret }));

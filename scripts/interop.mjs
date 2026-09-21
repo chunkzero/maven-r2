@@ -236,15 +236,13 @@ try {
     const page = await context.newPage(),
         errors = [];
     page.on("pageerror", (error) => errors.push(error.message));
-    await page.goto(origin + "/console/test");
+    await page.goto(origin + "/#/test");
     await expect(page.getByRole("heading", { name: "Repositories", exact: true })).toBeVisible();
     await expect(page.getByRole("link", { name: "Releases", exact: true })).toBeVisible();
     const screenshots = join(root, ".artifacts");
     await mkdir(screenshots, { recursive: true });
     await page.screenshot({ path: join(screenshots, "repositories.png"), fullPage: true });
-    await page.goto(
-        origin + "/console/test/repositories/releases?prefix=com/example/mavenr2/core/1.0.0",
-    );
+    await page.goto(origin + "/#/test/repositories/releases?prefix=com/example/mavenr2/core/1.0.0");
     await expect(page.getByRole("button", { name: "core-1.0.0.pom", exact: true })).toBeVisible();
     await expect(page.locator("pre").filter({ hasText: "repositories {" })).toContainText(
         'password = providers.environmentVariable("MAVEN_R2_READ_TOKEN").get()',
@@ -269,7 +267,7 @@ try {
         SELECT repository_id,'zz/qa/1.0/qa-1.0-' || n || '.pom',object_key,size,sha256,checksums,publication_id,updated_at
         FROM files CROSS JOIN fixture WHERE path='com/example/mavenr2/core/1.0.0/core-1.0.0.pom';
     `);
-    await page.goto(origin + "/console/test/repositories/releases");
+    await page.goto(origin + "/#/test/repositories/releases");
     await page.getByRole("button", { name: "Next page", exact: true }).click();
     await expect(page).toHaveURL(/after=/);
     await page.getByRole("searchbox", { name: "Search artifact paths" }).fill("core-1.0.0.pom");
@@ -279,8 +277,8 @@ try {
             exact: true,
         }),
     ).toBeVisible();
-    assert.equal(new URL(page.url()).searchParams.has("after"), false);
-    await page.goto(origin + "/console/test/tokens");
+    assert.ok(!page.url().includes("after="));
+    await page.goto(origin + "/#/test/tokens");
     await page.getByRole("button", { name: "Create token", exact: true }).click();
     const dialog = page.getByRole("dialog");
     await dialog.getByLabel("Token name").fill("Browser verification");
@@ -293,6 +291,7 @@ try {
     await expect(page.getByText("Revoked", { exact: true })).toBeVisible();
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(origin + "/console/test");
+    await expect(page).toHaveURL(origin + "/#/test");
     await expect(page.getByRole("heading", { name: "Repositories", exact: true })).toBeVisible();
     await page.screenshot({ path: join(screenshots, "mobile.png"), fullPage: true });
     assert.ok(

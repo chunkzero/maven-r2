@@ -95,12 +95,23 @@ app.doc("/api/openapi.json", {
 });
 app.all("/api/*", (c) => c.json({ error: "Not found" }, 404));
 app.all("/maven/*", (c) => c.json({ error: "Publish through the local maven-r2 proxy" }, 405));
-app.get("/", (c) => c.redirect(new URL("/console", c.env.APP_URL).href));
-app.get("/invite/:secret", (c) => c.redirect(new URL("/console" + c.req.path, c.env.APP_URL).href));
+// The console is a hash-routed single page at /#/...; its hashed assets live under /console/assets/.
+const consoleUrl = (env: Env, route: string) => new URL("/#" + route, env.APP_URL).href;
+app.on(["GET", "HEAD"], "/", async (c) => {
+    const url = new URL(c.req.url);
+    if (url.origin !== new URL(c.env.APP_URL).origin) return c.redirect(consoleUrl(c.env, "/"));
+    url.pathname = "/console/index.html";
+    const response = await c.env.ASSETS.fetch(new Request(url, c.req.raw));
+    return new Response(response.body, response);
+});
+app.get("/invite/:secret", (c) => c.redirect(consoleUrl(c.env, c.req.path)));
 app.on(["GET", "HEAD"], ["/console", "/console/*"], async (c) => {
     const url = new URL(c.req.url);
-    if (!url.pathname.startsWith("/console/assets/")) url.pathname = "/console/index.html";
-    const response = await c.env.ASSETS.fetch(new Request(url, c.req.raw));
+    if (!url.pathname.startsWith("/console/assets/"))
+        return c.redirect(
+            consoleUrl(c.env, (url.pathname.slice("/console".length) || "/") + url.search),
+        );
+    const response = await c.env.ASSETS.fetch(c.req.raw);
     return new Response(response.body, response);
 });
 for (const probe of ["/favicon.ico", "/robots.txt", "/.well-known/*"])

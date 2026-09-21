@@ -585,7 +585,7 @@ export function registerManagement(app: OpenAPIHono<AppEnv>) {
         return c.json(
             {
                 id,
-                url: new URL("/console/invite/" + secret, c.env.APP_URL).href,
+                url: new URL("/#/invite/" + secret, c.env.APP_URL).href,
                 expiresAt: expires,
             },
             201,

@@ -18,7 +18,12 @@ export default defineConfig({
         port: 5173,
         strictPort: true,
         proxy: {
-            "^/(?!console(?:/|$))": "http://127.0.0.1:8787",
+            // Serve the console page at / and forward every other non-console path to the Worker
+            // with the original host, so origin-relative repository mappings resolve locally.
+            "^/(?!console(?:/|$))": {
+                target: "http://127.0.0.1:8787",
+                bypass: (req) => (req.url === "/" ? "/console/" : undefined),
+            },
         },
     },
 });

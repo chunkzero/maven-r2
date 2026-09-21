@@ -1,5 +1,6 @@
 import type { Principal } from "./security";
 import type { RepositoryCoordinator } from "./coordinator";
+import type { MatchedRepository, RepositoryMapping } from "./repository-mappings";
 
 export interface Env {
     DB: D1Database;
@@ -7,6 +8,7 @@ export interface Env {
     REPOSITORIES: DurableObjectNamespace<RepositoryCoordinator>;
     ASSETS: Fetcher;
     APP_URL: string;
+    REPOSITORY_MAPPINGS?: RepositoryMapping[];
     INSTANCE_MODE: "single" | "multi";
     SIGNUP_MODE: "closed" | "invite" | "open";
     ALLOW_ACCOUNT_CREATION: string;
@@ -25,5 +27,9 @@ export interface Env {
 }
 export type AppEnv = {
     Bindings: Env;
-    Variables: { principal: Principal | null; requestId: string };
+    Variables: {
+        principal: Principal | null;
+        requestId: string;
+        repositoryMapping?: MatchedRepository;
+    };
 };

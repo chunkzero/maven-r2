@@ -1,5 +1,6 @@
 import type { Env } from "./env";
 import type { Role, Scope } from "@maven-r2/contracts";
+import { repositoryUrl } from "./repository-mappings";
 
 export interface AccountRow {
     id: string;
@@ -85,10 +86,11 @@ export const accountView = (row: AccountRow, role: Role | null = null) => ({
     maxBytes: row.max_bytes,
     suspended: !!row.suspended,
 });
-export const repositoryView = (row: RepositoryRow) => ({
+export const repositoryView = (env: Env, account: string, row: RepositoryRow) => ({
     id: row.id,
     accountId: row.account_id,
     slug: row.slug,
+    url: repositoryUrl(env, account, row.slug),
     name: row.name,
     visibility: row.visibility,
     policy: row.policy,

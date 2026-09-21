@@ -2,8 +2,10 @@ import type { Env, AppEnv } from "./env";
 import type { FileRow } from "./db";
 import { contentType } from "./db";
 import type { OpenAPIHono } from "@hono/zod-openapi";
+import type { Context } from "hono";
 import { canonicalPath, fail, getRepository, requireAccess } from "./security";
 import { checksumBase } from "./metadata";
+import { matchRepositoryMapping } from "./repository-mappings";
 import type { Checksums } from "./storage";
 
 export async function serveFile(
@@ -85,24 +87,41 @@ export async function serveFile(
 }
 export function registerDownloads(app: OpenAPIHono<AppEnv>) {
     app.on(["GET", "HEAD"], "/maven/:account/:repository/*", async (c) => {
-        const { repository } = await getRepository(
-            c.env,
-            c.req.param("account"),
-            c.req.param("repository"),
-        );
         const raw = new URL(c.req.url).pathname.split("/").slice(4).join("/");
         let path: string;
         try {
-            path = canonicalPath(decodeURIComponent(raw));
+            path = decodeURIComponent(raw);
         } catch {
             fail(400, "Invalid artifact path");
         }
-        await requireAccess(c.env, c.get("principal"), repository, "read", path);
-        const checksum = checksumBase(path);
-        const file = await c.env.DB.prepare("SELECT * FROM files WHERE repository_id=? AND path=?")
-            .bind(repository.id, checksum?.path ?? path)
-            .first<FileRow>();
-        if (!file) fail(404, "Artifact not found");
-        return serveFile(c.req.raw, c.env, file, checksum?.algorithm);
+        return serveRepositoryFile(c, c.req.param("account"), c.req.param("repository"), path);
     });
+}
+
+// Fallback for paths no other route claims: serve artifacts from a configured URL mapping.
+export function serveMappedRepository(c: Context<AppEnv>) {
+    const mapping = matchRepositoryMapping(c.env, new URL(c.req.url));
+    if (!mapping) return c.json({ error: "Not found" }, 404);
+    c.set("repositoryMapping", mapping);
+    if (!["GET", "HEAD"].includes(c.req.method))
+        return c.json({ error: "Publish through the local maven-r2 proxy" }, 405);
+    if (!mapping.path) fail(404, "Artifact not found");
+    return serveRepositoryFile(c, mapping.account, mapping.repository, mapping.path);
+}
+
+async function serveRepositoryFile(
+    c: Context<AppEnv>,
+    account: string,
+    slug: string,
+    artifactPath: string,
+) {
+    const { repository } = await getRepository(c.env, account, slug);
+    const path = canonicalPath(artifactPath);
+    await requireAccess(c.env, c.get("principal"), repository, "read", path);
+    const checksum = checksumBase(path);
+    const file = await c.env.DB.prepare("SELECT * FROM files WHERE repository_id=? AND path=?")
+        .bind(repository.id, checksum?.path ?? path)
+        .first<FileRow>();
+    if (!file) fail(404, "Artifact not found");
+    return serveFile(c.req.raw, c.env, file, checksum?.algorithm);
 }

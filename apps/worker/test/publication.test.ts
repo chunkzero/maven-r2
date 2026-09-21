@@ -8,6 +8,7 @@ import { app } from "../src/index";
 import { hash, newSecret } from "../src/security";
 import { parseMetadata } from "../src/metadata";
 import { PART_SIZE } from "../src/storage";
+import { matchRepositoryMapping } from "../src/repository-mappings";
 import type { Publication, Upload } from "@maven-r2/contracts";
 
 let token: string;
@@ -276,6 +277,217 @@ describe("publication and Maven protocol", () => {
                 )
             ).status,
         ).toBe(401);
+    });
+});
+
+describe("repository URL mappings", () => {
+    function runtime() {
+        return {
+            ...env,
+            REPOSITORY_MAPPINGS: [
+                { url: "https://repo.test/", account: "test", repository: "releases" },
+                { url: "https://repo.test/snapshots/", account: "test", repository: "snapshots" },
+            ],
+        };
+    }
+
+    it("serves root and snapshot aliases with the existing Maven download semantics", async () => {
+        const releaseSession = await release();
+        await json(await request(`/api/publications/${releaseSession.id}/commit`, "POST"));
+        const snapshotSession = await begin("snapshots");
+        const snapshot = "com/acme/demo/1.0-SNAPSHOT/demo-1.0-20260920.120000-1";
+        await stage(snapshotSession.id, snapshot + ".pom", pom("1.0-SNAPSHOT"));
+        await stage(snapshotSession.id, snapshot + ".jar", "snapshot");
+        await json(await request(`/api/publications/${snapshotSession.id}/commit`, "POST"));
+        const get = (path: string, init: RequestInit = {}) =>
+            app.request(
+                "https://repo.test" + path,
+                {
+                    ...init,
+                    headers: { authorization: "Basic " + btoa("maven:" + token), ...init.headers },
+                },
+                runtime(),
+            );
+        const path = "/com/acme/demo/1.0/demo-1.0.jar";
+        const artifact = await get(path);
+        expect(artifact.status).toBe(200);
+        expect(await artifact.text()).toBe("artifact");
+        expect(await (await get(path + ".sha256")).text()).toBe(await hash("artifact"));
+        expect((await get(path, { method: "HEAD" })).headers.get("content-length")).toBe("8");
+        const range = await get(path, { headers: { range: "bytes=1-3" } });
+        expect(range.status).toBe(206);
+        expect(await range.text()).toBe("rti");
+        expect(
+            (await get(path, { headers: { "if-none-match": artifact.headers.get("etag")! } }))
+                .status,
+        ).toBe(304);
+        expect(await (await get("/snapshots/" + snapshot + ".jar")).text()).toBe("snapshot");
+        expect(await (await get("/%73napshots/" + snapshot + ".jar")).text()).toBe("snapshot");
+        expect((await get("/snapshots/com/acme/demo/1.0-SNAPSHOT/maven-metadata.xml")).status).toBe(
+            200,
+        );
+        expect((await get("/snapshots" + path)).status).toBe(404);
+        expect((await get("/snapshots-other" + path)).status).toBe(404);
+        expect((await get(path, { method: "PUT" })).status).toBe(405);
+        expect(await (await get("/maven/test/releases" + path)).text()).toBe("artifact");
+    });
+
+    it("preserves token scopes, revocation, visibility and account isolation in multi mode", async () => {
+        const session = await release();
+        await json(await request(`/api/publications/${session.id}/commit`, "POST"));
+        await env.DB.batch([
+            env.DB.prepare(
+                "INSERT INTO accounts (id,slug,name,max_bytes,created_at) VALUES ('other','other','Other',10000,0)",
+            ),
+            env.DB.prepare(
+                "INSERT INTO repositories (id,account_id,slug,name,visibility,policy,max_file_bytes,created_at) VALUES ('other','other','releases','Other','private','releases',10000,0)",
+            ),
+        ]);
+        const base = runtime();
+        const mapped = {
+            ...base,
+            INSTANCE_MODE: "multi" as const,
+            REPOSITORY_MAPPINGS: [
+                ...base.REPOSITORY_MAPPINGS,
+                { url: "https://other.test", account: "other", repository: "releases" },
+            ],
+        };
+        const path = "/com/acme/demo/1.0/demo-1.0.jar";
+        const get = (origin: string, secret = token) =>
+            app.request(
+                origin + path,
+                {
+                    headers: secret ? { authorization: "Bearer " + secret } : {},
+                },
+                mapped,
+            );
+        const anonymous = await get("https://repo.test", "");
+        expect(anonymous.status).toBe(401);
+        expect(anonymous.headers.get("www-authenticate")).toBe('Basic realm="Maven R2"');
+        expect((await get("https://other.test")).status).toBe(403);
+        await env.DB.prepare("UPDATE tokens SET scopes=?")
+            .bind(
+                JSON.stringify([
+                    { repository: "releases", prefixes: ["com/elsewhere"], actions: ["read"] },
+                ]),
+            )
+            .run();
+        expect((await get("https://repo.test")).status).toBe(403);
+        await env.DB.prepare(
+            "UPDATE repositories SET visibility='public' WHERE account_id!='other'",
+        ).run();
+        expect((await get("https://repo.test", "")).status).toBe(200);
+        await env.DB.prepare("UPDATE tokens SET revoked=1").run();
+        expect((await get("https://repo.test")).status).toBe(401);
+        await env.DB.prepare("UPDATE accounts SET suspended=1 WHERE slug='test'").run();
+        expect((await get("https://repo.test", "")).status).toBe(404);
+    });
+
+    it("advertises the first mapped URL and retains canonical URLs for unmapped repositories", async () => {
+        const mapped = {
+            ...env,
+            REPOSITORY_MAPPINGS: [
+                { url: "https://maven.test/", account: "test", repository: "releases" },
+                { url: "https://alternate.test/releases", account: "test", repository: "releases" },
+            ],
+        };
+        const response = await app.request(
+            "https://repo.test/api/accounts/test/repositories",
+            {
+                headers: { authorization: "Bearer " + token },
+            },
+            mapped,
+        );
+        expect(await json(response)).toMatchObject([
+            { slug: "releases", url: "https://maven.test" },
+            { slug: "snapshots", url: "https://repo.test/maven/test/snapshots" },
+        ]);
+        expect(
+            (await app.request("https://unmapped.test/com/acme/demo/1.0/demo-1.0.jar", {}, mapped))
+                .status,
+        ).toBe(404);
+    });
+
+    it("keeps console and API requests out of root mappings and never serves HTML for missing artifacts", async () => {
+        const mapped = {
+            ...runtime(),
+            ASSETS: {
+                fetch: async (request: Request) => new Response(new URL(request.url).pathname),
+            } as Fetcher,
+        };
+        expect((await app.request("https://other.test/", {}, mapped)).headers.get("location")).toBe(
+            "https://repo.test/console",
+        );
+        expect(
+            await (
+                await app.request(
+                    "https://repo.test/console/test/repositories/releases",
+                    {},
+                    mapped,
+                )
+            ).text(),
+        ).toBe("/console/index.html");
+        expect(
+            await (await app.request("https://repo.test/console/assets/app.js", {}, mapped)).text(),
+        ).toBe("/console/assets/app.js");
+        expect(
+            (await app.request("https://other.test/invite/example", {}, mapped)).headers.get(
+                "location",
+            ),
+        ).toBe("https://repo.test/console/invite/example");
+        const favicon = await app.request("https://repo.test/favicon.ico", {}, mapped);
+        expect(favicon.status).toBe(404);
+        expect(favicon.headers.has("www-authenticate")).toBe(false);
+        expect((await app.request("https://repo.test/api/config", {}, mapped)).status).toBe(200);
+        const deniedApi = await app.request(
+            "https://repo.test/api/accounts/test/tokens",
+            {},
+            mapped,
+        );
+        expect(deniedApi.status).toBe(401);
+        expect(deniedApi.headers.has("www-authenticate")).toBe(false);
+        const missing = await app.request(
+            "https://repo.test/com/acme/missing.jar",
+            {
+                headers: { authorization: "Bearer " + token, "sec-fetch-mode": "navigate" },
+            },
+            mapped,
+        );
+        expect(missing.status).toBe(404);
+        expect(missing.headers.get("content-type")).toContain("application/json");
+    });
+
+    it("rejects duplicate, reserved and unsafe mapping URLs", () => {
+        for (const url of [
+            "https://repo.test/api/releases",
+            "https://repo.test/console",
+            "https://repo.test/maven",
+            "https://repo.test/releases?token=secret",
+            "https://user:secret@repo.test",
+            "http://repo.test",
+        ]) {
+            expect(() =>
+                matchRepositoryMapping(
+                    {
+                        ...env,
+                        REPOSITORY_MAPPINGS: [{ url, account: "test", repository: "releases" }],
+                    },
+                    new URL("https://repo.test/com/acme/file.jar"),
+                ),
+            ).toThrow();
+        }
+        expect(() =>
+            matchRepositoryMapping(
+                {
+                    ...env,
+                    REPOSITORY_MAPPINGS: [
+                        { url: "https://repo.test/", account: "test", repository: "releases" },
+                        { url: "https://repo.test", account: "test", repository: "snapshots" },
+                    ],
+                },
+                new URL("https://repo.test/com/acme/file.jar"),
+            ),
+        ).toThrow("Duplicate repository mapping");
     });
 });
 

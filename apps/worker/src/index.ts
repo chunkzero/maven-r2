@@ -8,7 +8,7 @@ import { authenticate, fail, rateLimit } from "./security";
 import { auth } from "./auth";
 import { registerManagement } from "./management";
 import { registerPublications } from "./publications";
-import { registerDownloads } from "./downloads";
+import { registerDownloads, serveMappedRepository } from "./downloads";
 import { registerBootstrap } from "./bootstrap";
 import { cleanup } from "./cleanup";
 export { RepositoryCoordinator } from "./coordinator";
@@ -40,7 +40,7 @@ app.use("*", async (c, next) => {
     c.set("requestId", crypto.randomUUID());
     c.header("x-request-id", c.get("requestId"));
     await next();
-    if (c.res.status === 401 && c.req.path.startsWith("/maven/"))
+    if (c.res.status === 401 && (c.req.path.startsWith("/maven/") || c.get("repositoryMapping")))
         c.header("www-authenticate", 'Basic realm="Maven R2"');
 });
 app.use("/api/*", async (c, next) => {
@@ -95,10 +95,17 @@ app.doc("/api/openapi.json", {
 });
 app.all("/api/*", (c) => c.json({ error: "Not found" }, 404));
 app.all("/maven/*", (c) => c.json({ error: "Publish through the local maven-r2 proxy" }, 405));
-app.get("*", async (c) => {
-    const response = await c.env.ASSETS.fetch(c.req.raw);
+app.get("/", (c) => c.redirect(new URL("/console", c.env.APP_URL).href));
+app.get("/invite/:secret", (c) => c.redirect(new URL("/console" + c.req.path, c.env.APP_URL).href));
+app.on(["GET", "HEAD"], ["/console", "/console/*"], async (c) => {
+    const url = new URL(c.req.url);
+    if (!url.pathname.startsWith("/console/assets/")) url.pathname = "/console/index.html";
+    const response = await c.env.ASSETS.fetch(new Request(url, c.req.raw));
     return new Response(response.body, response);
 });
+for (const probe of ["/favicon.ico", "/robots.txt", "/.well-known/*"])
+    app.all(probe, (c) => c.json({ error: "Not found" }, 404));
+app.all("*", serveMappedRepository);
 app.onError((error, c) => {
     const status =
         error instanceof HTTPException ? error.status : error instanceof ZodError ? 400 : 500;

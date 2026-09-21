@@ -10,6 +10,7 @@ A Maven repository backed by Cloudflare R2, with a standalone Go publishing clie
 - Atomic publication sessions, immutable releases and timestamped snapshots, concurrent metadata merging, resumable multipart uploads, and failed-build rollback.
 - Maven POMs, parent POMs, Gradle module metadata, classifiers, detached signatures, and MD5/SHA-1/SHA-256/SHA-512 sidecars. The server verifies supplied checksums and generates checksums for its own metadata.
 - Direct downloads with Basic or Bearer token authentication, conditional GET, HEAD, and byte ranges. Public repositories need no credentials.
+- Configurable repository URLs, including a release repository at the domain root and snapshots at `/snapshots`, in single- or multiple-workspace instances.
 - Single-workspace or multiple-workspace instances, GitHub login, optional OIDC, configurable signups, invitation links, and owner/admin/publisher/reader roles.
 - Personal tokens and service-account tokens restricted by repository, path prefix, operation, and expiry. Tokens are stored as hashes and shown once. Revocation, removal of membership, and disabled service accounts take effect on subsequent requests.
 - A responsive light/dark console for artifact browsing, path search, dependency snippets, publication history, version deletion, repository settings, members, invitations, service accounts, tokens, usage, and audit history.
@@ -46,7 +47,7 @@ mise exec -- pnpm db:migrate
 mise exec -- just dev
 ```
 
-Open **http://localhost:5173**. Vite+ forwards API and Maven requests to the local Worker on port 8787. Wrangler emulates D1, R2, and Durable Objects locally. The example secrets are for local development only.
+Open **http://localhost:5173/console/**. Vite+ serves the console and forwards other paths to the local Worker on port 8787, including mapped repository URLs. Wrangler emulates D1, R2, and Durable Objects locally. The example secrets are for local development only.
 
 Initialize the local instance once:
 
@@ -183,6 +184,42 @@ https://repo.example.com/maven/acme/snapshots
 ```
 
 Public repositories need only the URL. For private repositories, use any Basic-auth username and a scoped read token as the password. The web console supplies dependency coordinates and repository snippets. No local proxy is needed for downloads. Configure dependency repositories separately from publishing destinations, including in CI. If the publishing build also downloads private dependencies, supply a separate read credential (for example `MAVEN_R2_READ_TOKEN`); the proxy deliberately removes `MAVEN_R2_TOKEN` from the build environment.
+
+### Custom repository URLs
+
+Set `vars.REPOSITORY_MAPPINGS` in `apps/worker/wrangler.jsonc` to map public URLs to existing account/repository slugs:
+
+```json
+"REPOSITORY_MAPPINGS": [
+    {
+        "url": "https://maven.chunkzero.com",
+        "account": "default",
+        "repository": "releases"
+    },
+    {
+        "url": "https://maven.chunkzero.com/snapshots",
+        "account": "default",
+        "repository": "snapshots"
+    }
+]
+```
+
+For public repositories, consumers can then use:
+
+```kotlin
+repositories {
+    maven("https://maven.chunkzero.com")
+    maven("https://maven.chunkzero.com/snapshots")
+}
+```
+
+Mappings preserve repository visibility, token scopes, and R2 streaming. Bootstrap repositories are private until an administrator changes their visibility; private consumers still need read credentials. Existing `/maven/{account}/{repository}` URLs continue to work, and publishing still uses the account/repository pair through the CLI.
+
+Mappings work in both instance modes. Each URL selects exactly one repository. To serve another account, configure another hostname or path with that account's slugs. Register each hostname as a [Worker custom domain](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/) or Worker route pointing to this Worker; adding a mapping does not provision DNS or TLS. Keep the R2 bucket private.
+
+URLs must use HTTPS, except HTTP on `localhost`, `127.0.0.1`, or `[::1]` for local development. Matching uses the exact origin and the longest matching path prefix at a slash boundary, so `/snapshots` takes precedence over a root mapping. A missing artifact in that repository returns 404 without falling back to another repository. Trailing slashes are optional; duplicate URLs are rejected. `/api`, `/maven`, `/console`, `/health`, `/invite`, `/favicon.ico`, `/robots.txt`, and `/.well-known` are reserved, including their descendants. Nested mappings also reserve their prefixes in the parent mapping; artifacts shadowed by these prefixes remain available at the canonical `/maven/...` URL.
+
+The console lives at `/console` and `/` redirects there. `APP_URL` remains the console's origin, without `/console`; OAuth callback URLs stay under `/api/auth`. Existing invitation links under `/invite` redirect to `/console/invite`. Other old console bookmarks need the `/console` prefix. The console displays the first configured mapping for a repository in copyable URLs and dependency snippets, falling back to its canonical URL when no mapping exists. Browser download buttons use the console origin so session credentials work even when a mapping uses another hostname.
 
 ## Initial implementation boundaries
 

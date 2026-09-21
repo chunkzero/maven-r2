@@ -24,12 +24,16 @@ const testConfig = JSON.parse(
 );
 testConfig.main = join(root, "apps/worker/src/index.ts");
 testConfig.vars.APP_URL = origin;
+testConfig.vars.REPOSITORY_MAPPINGS = [
+    { url: origin, account: "test", repository: "releases" },
+    { url: origin + "/snapshots", account: "test", repository: "snapshots" },
+];
 testConfig.d1_databases[0].migrations_dir = join(root, "apps/worker/migrations");
 testConfig.assets = {
     directory: join(root, "apps/web/dist"),
     binding: "ASSETS",
-    not_found_handling: "single-page-application",
-    run_worker_first: ["/api/*", "/maven/*", "/health"],
+    html_handling: "none",
+    run_worker_first: ["/*", "!/console/assets/*"],
 };
 await writeFile(configPath, JSON.stringify(testConfig));
 const wrangler = ["--filter", "@maven-r2/worker", "exec", "wrangler"];
@@ -174,7 +178,7 @@ try {
         ["snapshots", "1.1.0-SNAPSHOT"],
     ]) {
         console.log(`Resolving ${version} directly with Gradle and Maven…`);
-        const url = `${origin}/maven/test/${repo}`;
+        const url = repo === "releases" ? origin : origin + "/snapshots";
         await run(
             "./examples/gradle/gradlew",
             [
@@ -232,16 +236,21 @@ try {
     const page = await context.newPage(),
         errors = [];
     page.on("pageerror", (error) => errors.push(error.message));
-    await page.goto(origin + "/test");
+    await page.goto(origin + "/console/test");
     await expect(page.getByRole("heading", { name: "Repositories", exact: true })).toBeVisible();
     await expect(page.getByRole("link", { name: "Releases", exact: true })).toBeVisible();
     const screenshots = join(root, ".artifacts");
     await mkdir(screenshots, { recursive: true });
     await page.screenshot({ path: join(screenshots, "repositories.png"), fullPage: true });
-    await page.goto(origin + "/test/repositories/releases?prefix=com/example/mavenr2/core/1.0.0");
+    await page.goto(
+        origin + "/console/test/repositories/releases?prefix=com/example/mavenr2/core/1.0.0",
+    );
     await expect(page.getByRole("button", { name: "core-1.0.0.pom", exact: true })).toBeVisible();
     await expect(page.locator("pre").filter({ hasText: "repositories {" })).toContainText(
         'password = providers.environmentVariable("MAVEN_R2_READ_TOKEN").get()',
+    );
+    await expect(page.locator("pre").filter({ hasText: "repositories {" })).toContainText(
+        `url = uri("${origin}")`,
     );
     await page.screenshot({ path: join(screenshots, "artifacts.png"), fullPage: true });
     await page.getByRole("button", { name: "core-1.0.0.pom", exact: true }).click();
@@ -260,7 +269,7 @@ try {
         SELECT repository_id,'zz/qa/1.0/qa-1.0-' || n || '.pom',object_key,size,sha256,checksums,publication_id,updated_at
         FROM files CROSS JOIN fixture WHERE path='com/example/mavenr2/core/1.0.0/core-1.0.0.pom';
     `);
-    await page.goto(origin + "/test/repositories/releases");
+    await page.goto(origin + "/console/test/repositories/releases");
     await page.getByRole("button", { name: "Next page", exact: true }).click();
     await expect(page).toHaveURL(/after=/);
     await page.getByRole("searchbox", { name: "Search artifact paths" }).fill("core-1.0.0.pom");
@@ -271,7 +280,7 @@ try {
         }),
     ).toBeVisible();
     assert.equal(new URL(page.url()).searchParams.has("after"), false);
-    await page.goto(origin + "/test/tokens");
+    await page.goto(origin + "/console/test/tokens");
     await page.getByRole("button", { name: "Create token", exact: true }).click();
     const dialog = page.getByRole("dialog");
     await dialog.getByLabel("Token name").fill("Browser verification");
@@ -283,7 +292,7 @@ try {
     await page.getByRole("button", { name: "Revoke token", exact: true }).click();
     await expect(page.getByText("Revoked", { exact: true })).toBeVisible();
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto(origin + "/test");
+    await page.goto(origin + "/console/test");
     await expect(page.getByRole("heading", { name: "Repositories", exact: true })).toBeVisible();
     await page.screenshot({ path: join(screenshots, "mobile.png"), fullPage: true });
     assert.ok(

@@ -343,11 +343,12 @@ describe("repository URL mappings", () => {
                 "INSERT INTO repositories (id,account_id,slug,name,visibility,policy,max_file_bytes,created_at) VALUES ('other','other','releases','Other','private','releases',10000,0)",
             ),
         ]);
+        const base = runtime();
         const mapped = {
-            ...runtime(),
+            ...base,
             INSTANCE_MODE: "multi" as const,
             REPOSITORY_MAPPINGS: [
-                ...runtime().REPOSITORY_MAPPINGS,
+                ...base.REPOSITORY_MAPPINGS,
                 { url: "https://other.test", account: "other", repository: "releases" },
             ],
         };
@@ -414,8 +415,8 @@ describe("repository URL mappings", () => {
                 fetch: async (request: Request) => new Response(new URL(request.url).pathname),
             } as Fetcher,
         };
-        expect((await app.request("https://repo.test/", {}, mapped)).headers.get("location")).toBe(
-            "/console",
+        expect((await app.request("https://other.test/", {}, mapped)).headers.get("location")).toBe(
+            "https://repo.test/console",
         );
         expect(
             await (
@@ -425,15 +426,18 @@ describe("repository URL mappings", () => {
                     mapped,
                 )
             ).text(),
-        ).toBe("/index.html");
+        ).toBe("/console/index.html");
         expect(
             await (await app.request("https://repo.test/console/assets/app.js", {}, mapped)).text(),
-        ).toBe("/assets/app.js");
+        ).toBe("/console/assets/app.js");
         expect(
-            (await app.request("https://repo.test/invite/example", {}, mapped)).headers.get(
+            (await app.request("https://other.test/invite/example", {}, mapped)).headers.get(
                 "location",
             ),
-        ).toBe("/console/invite/example");
+        ).toBe("https://repo.test/console/invite/example");
+        const favicon = await app.request("https://repo.test/favicon.ico", {}, mapped);
+        expect(favicon.status).toBe(404);
+        expect(favicon.headers.has("www-authenticate")).toBe(false);
         expect((await app.request("https://repo.test/api/config", {}, mapped)).status).toBe(200);
         const deniedApi = await app.request(
             "https://repo.test/api/accounts/test/tokens",

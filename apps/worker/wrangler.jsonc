@@ -10,7 +10,7 @@
         "directory": "../web/dist",
         "binding": "ASSETS",
         "html_handling": "none",
-        "run_worker_first": true,
+        "run_worker_first": ["/*", "!/console/assets/*"],
     },
     "d1_databases": [
         {

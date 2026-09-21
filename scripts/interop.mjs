@@ -33,7 +33,7 @@ testConfig.assets = {
     directory: join(root, "apps/web/dist"),
     binding: "ASSETS",
     html_handling: "none",
-    run_worker_first: true,
+    run_worker_first: ["/*", "!/console/assets/*"],
 };
 await writeFile(configPath, JSON.stringify(testConfig));
 const wrangler = ["--filter", "@maven-r2/worker", "exec", "wrangler"];

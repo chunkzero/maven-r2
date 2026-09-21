@@ -4,6 +4,7 @@ import stylex from "@stylexjs/unplugin";
 
 export default defineConfig({
     base: "/console/",
+    build: { outDir: "dist/console" },
     plugins: [
         stylex.vite({
             unstable_moduleResolution: {

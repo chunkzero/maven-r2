@@ -5,6 +5,7 @@ import type { OpenAPIHono } from "@hono/zod-openapi";
 import type { Context } from "hono";
 import { canonicalPath, fail, getRepository, requireAccess } from "./security";
 import { checksumBase } from "./metadata";
+import { matchRepositoryMapping } from "./repository-mappings";
 import type { Checksums } from "./storage";
 
 export async function serveFile(
@@ -95,14 +96,17 @@ export function registerDownloads(app: OpenAPIHono<AppEnv>) {
         }
         return serveRepositoryFile(c, c.req.param("account"), c.req.param("repository"), path);
     });
-    app.all("*", async (c, next) => {
-        const mapping = c.get("repositoryMapping");
-        if (!mapping) return next();
-        if (!["GET", "HEAD"].includes(c.req.method))
-            return c.json({ error: "Publish through the local maven-r2 proxy" }, 405);
-        if (!mapping.path) fail(404, "Artifact not found");
-        return serveRepositoryFile(c, mapping.account, mapping.repository, mapping.path);
-    });
+}
+
+// Fallback for paths no other route claims: serve artifacts from a configured URL mapping.
+export function serveMappedRepository(c: Context<AppEnv>) {
+    const mapping = matchRepositoryMapping(c.env, new URL(c.req.url));
+    if (!mapping) return c.json({ error: "Not found" }, 404);
+    c.set("repositoryMapping", mapping);
+    if (!["GET", "HEAD"].includes(c.req.method))
+        return c.json({ error: "Publish through the local maven-r2 proxy" }, 405);
+    if (!mapping.path) fail(404, "Artifact not found");
+    return serveRepositoryFile(c, mapping.account, mapping.repository, mapping.path);
 }
 
 async function serveRepositoryFile(

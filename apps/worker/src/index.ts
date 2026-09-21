@@ -8,10 +8,9 @@ import { authenticate, fail, rateLimit } from "./security";
 import { auth } from "./auth";
 import { registerManagement } from "./management";
 import { registerPublications } from "./publications";
-import { registerDownloads } from "./downloads";
+import { registerDownloads, serveMappedRepository } from "./downloads";
 import { registerBootstrap } from "./bootstrap";
 import { cleanup } from "./cleanup";
-import { matchRepositoryMapping } from "./repository-mappings";
 export { RepositoryCoordinator } from "./coordinator";
 
 export const app = new OpenAPIHono<AppEnv>({
@@ -40,7 +39,6 @@ app.use(
 app.use("*", async (c, next) => {
     c.set("requestId", crypto.randomUUID());
     c.header("x-request-id", c.get("requestId"));
-    c.set("repositoryMapping", matchRepositoryMapping(c.env, new URL(c.req.url)));
     await next();
     if (c.res.status === 401 && (c.req.path.startsWith("/maven/") || c.get("repositoryMapping")))
         c.header("www-authenticate", 'Basic realm="Maven R2"');
@@ -86,7 +84,6 @@ app.get("/health", async (c) => {
 registerBootstrap(app);
 registerManagement(app);
 registerPublications(app);
-app.get("/", (c) => c.redirect("/console"));
 registerDownloads(app);
 app.openAPIRegistry.registerComponent("securitySchemes", "bearerAuth", {
     type: "http",
@@ -98,16 +95,17 @@ app.doc("/api/openapi.json", {
 });
 app.all("/api/*", (c) => c.json({ error: "Not found" }, 404));
 app.all("/maven/*", (c) => c.json({ error: "Publish through the local maven-r2 proxy" }, 405));
-app.get("/invite/:secret", (c) => c.redirect("/console" + c.req.path));
+app.get("/", (c) => c.redirect(new URL("/console", c.env.APP_URL).href));
+app.get("/invite/:secret", (c) => c.redirect(new URL("/console" + c.req.path, c.env.APP_URL).href));
 app.on(["GET", "HEAD"], ["/console", "/console/*"], async (c) => {
     const url = new URL(c.req.url);
-    url.pathname = url.pathname.startsWith("/console/assets/")
-        ? url.pathname.slice("/console".length)
-        : "/index.html";
+    if (!url.pathname.startsWith("/console/assets/")) url.pathname = "/console/index.html";
     const response = await c.env.ASSETS.fetch(new Request(url, c.req.raw));
     return new Response(response.body, response);
 });
-app.all("*", (c) => c.json({ error: "Not found" }, 404));
+for (const probe of ["/favicon.ico", "/robots.txt", "/.well-known/*"])
+    app.all(probe, (c) => c.json({ error: "Not found" }, 404));
+app.all("*", serveMappedRepository);
 app.onError((error, c) => {
     const status =
         error instanceof HTTPException ? error.status : error instanceof ZodError ? 400 : 500;

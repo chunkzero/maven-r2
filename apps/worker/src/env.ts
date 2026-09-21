@@ -1,6 +1,6 @@
 import type { Principal } from "./security";
 import type { RepositoryCoordinator } from "./coordinator";
-import type { RepositoryMapping, matchRepositoryMapping } from "./repository-mappings";
+import type { MatchedRepository, RepositoryMapping } from "./repository-mappings";
 
 export interface Env {
     DB: D1Database;
@@ -30,6 +30,6 @@ export type AppEnv = {
     Variables: {
         principal: Principal | null;
         requestId: string;
-        repositoryMapping: ReturnType<typeof matchRepositoryMapping>;
+        repositoryMapping?: MatchedRepository;
     };
 };

@@ -1,5 +1,4 @@
 import { createHash, createHmac } from "node:crypto";
-import { auth } from "../src/auth";
 import { cleanup } from "../src/cleanup";
 import { env } from "cloudflare:workers";
 import { applyD1Migrations, reset } from "cloudflare:test";
@@ -697,7 +696,7 @@ describe("account management and lifecycle", () => {
                 .status,
         ).toBe(401);
     });
-    it("restricts invitations to the intended verified identity and disallows closed signups", async () => {
+    it("restricts invitations to the intended verified identity", async () => {
         const owner = await browserUser(),
             guest = await browserUser("guest", "guest@example.com", false);
         const invitation = await json<{ url: string }>(
@@ -721,17 +720,6 @@ describe("account management and lifecycle", () => {
                 })
             ).status,
         ).toBe(403);
-        const context = await auth(env).$context;
-        await expect(
-            context.internalAdapter.createUser(
-                {
-                    name: "Blocked",
-                    email: "blocked@example.com",
-                    emailVerified: true,
-                },
-                { method: "oauth" },
-            ),
-        ).rejects.toThrow("Signups are disabled");
     });
     it("deletes complete versions, updates metadata and protects readers from mutation", async () => {
         const browser = await browserUser();
@@ -874,5 +862,100 @@ describe("workspace policies", () => {
                 )
             ).status,
         ).toBe(200);
+    });
+});
+
+describe("GitHub sign-in", () => {
+    it.each([42, 43])("checks the verified GitHub identity %i on a closed instance", async (id) => {
+        const runtime = {
+            ...env,
+            GITHUB_CLIENT_ID: "test-client",
+            GITHUB_CLIENT_SECRET: "test-secret",
+        };
+        const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+            const url = String(input instanceof Request ? input.url : input);
+            if (url === "https://github.com/login/oauth/access_token") {
+                return Response.json({
+                    access_token: "test-access-token",
+                    token_type: "bearer",
+                    scope: "read:user,user:email",
+                });
+            }
+            if (url === "https://api.github.com/user") {
+                return Response.json({
+                    id,
+                    login: "test-user",
+                    name: "Test User",
+                    email: "test@example.com",
+                    githubId: "42",
+                });
+            }
+            if (url === "https://api.github.com/user/emails") {
+                return Response.json([
+                    { email: "test@example.com", primary: true, verified: true },
+                ]);
+            }
+            throw new Error(`Unexpected OAuth request: ${url}`);
+        });
+        const cookies = (response: Response) =>
+            response.headers
+                .getSetCookie()
+                .map((cookie) => cookie.split(";")[0])
+                .join("; ");
+        try {
+            const signIn = await app.request(
+                "https://repo.test/api/auth/sign-in/social",
+                {
+                    method: "POST",
+                    headers: { "content-type": "application/json", origin: "https://repo.test" },
+                    body: JSON.stringify({ provider: "github", callbackURL: "https://repo.test" }),
+                },
+                runtime,
+            );
+            const { url } = await json<{ url: string }>(signIn);
+            const state = new URL(url).searchParams.get("state")!;
+            const callback = await app.request(
+                `https://repo.test/api/auth/callback/github?code=test-code&state=${encodeURIComponent(state)}`,
+                {
+                    headers: { cookie: cookies(signIn) },
+                },
+                runtime,
+            );
+            expect(callback.status).toBe(302);
+            if (id !== 42) {
+                expect(callback.headers.get("location")).toContain("signup_disabled");
+                expect(await env.DB.prepare("SELECT id FROM auth_users").first()).toBeNull();
+                return;
+            }
+            expect(callback.headers.get("location")).toBe("https://repo.test");
+            expect(await env.DB.prepare("SELECT github_id FROM auth_users").first()).toEqual({
+                github_id: "42",
+            });
+            const cookie = cookies(callback);
+            const me = await app.request(
+                "https://repo.test/api/me",
+                { headers: { cookie } },
+                runtime,
+            );
+            expect(await json(me)).toMatchObject({ user: { admin: true } });
+            await app.request(
+                "https://repo.test/api/auth/update-user",
+                {
+                    method: "POST",
+                    headers: {
+                        cookie,
+                        origin: "https://repo.test",
+                        "content-type": "application/json",
+                    },
+                    body: JSON.stringify({ name: "Updated", githubId: "43" }),
+                },
+                runtime,
+            );
+            expect(await env.DB.prepare("SELECT github_id FROM auth_users").first()).toEqual({
+                github_id: "42",
+            });
+        } finally {
+            fetchMock.mockRestore();
+        }
     });
 });

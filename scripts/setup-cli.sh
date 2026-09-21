@@ -24,7 +24,9 @@ suffix=""
 if [[ "$platform" == windows ]]; then suffix=.exe; fi
 asset="maven-r2-${platform}-${arch}${suffix}"
 release_url="https://github.com/chunkzero/maven-r2/releases/download/$version"
-install_dir="$(mktemp -d "$RUNNER_TEMP/maven-r2.XXXXXX")"
+temp_root="$RUNNER_TEMP"
+if [[ "$platform" == windows ]]; then temp_root="$(cygpath -u "$temp_root")"; fi
+install_dir="$(mktemp -d "$temp_root/maven-r2.XXXXXX")"
 trap 'rm -rf "$install_dir"' EXIT
 
 curl --fail --silent --show-error --location --retry 3 \
@@ -37,9 +39,9 @@ if [[ ! "$expected" =~ ^[0-9a-f]{64}$ ]]; then
     exit 1
 fi
 if command -v sha256sum >/dev/null 2>&1; then
-    actual="$(sha256sum "$install_dir/$asset")"
+    actual="$(sha256sum < "$install_dir/$asset")"
 else
-    actual="$(shasum -a 256 "$install_dir/$asset")"
+    actual="$(shasum -a 256 < "$install_dir/$asset")"
 fi
 if [[ "${actual%% *}" != "$expected" ]]; then
     echo "SHA-256 checksum mismatch for $asset" >&2

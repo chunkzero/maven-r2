@@ -27,7 +27,13 @@ else
     cp "$FIXTURE/binary" "$output"
 fi
 ''')
-            (tools / "cygpath").write_text('#!/usr/bin/env bash\nprintf "%s\\n" "$2"\n')
+            (tools / "cygpath").write_text('''#!/usr/bin/env bash
+if [[ "$1" == -u ]]; then
+    printf '%s\\n' "$FIXTURE"
+else
+    printf '%s\\n' "$2"
+fi
+''')
             for tool in tools.iterdir():
                 tool.chmod(0o755)
             binary = b"fixture CLI bytes\n"
@@ -40,7 +46,7 @@ fi
             (root / "SHA256SUMS").write_text("" if missing else f"{digest}  {asset}\n")
             path_file = root / "path"
             env = {**os.environ, "PATH": f"{tools}{os.pathsep}{os.environ['PATH']}",
-                   "FIXTURE": str(root), "RUNNER_TEMP": str(root), "GITHUB_PATH": str(path_file),
+                   "FIXTURE": str(root), "RUNNER_TEMP": r"C:\runner\temp" if platform == "Windows" else str(root), "GITHUB_PATH": str(path_file),
                    "MAVEN_R2_VERSION": version, "RUNNER_OS": platform, "RUNNER_ARCH": arch}
             result = subprocess.run(["bash", str(SCRIPT)], env=env, capture_output=True, text=True)
             if result.returncode == 0:

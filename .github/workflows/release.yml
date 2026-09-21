@@ -1,7 +1,7 @@
 name: CLI release
 on:
     push:
-        tags: ["v*"]
+        tags: ["v*.*.*"]
 permissions:
     contents: write
 jobs:
@@ -28,3 +28,20 @@ jobs:
             - run: gh release create "$GITHUB_REF_NAME" release/* --generate-notes --verify-tag
               env:
                   GH_TOKEN: ${{ github.token }}
+    setup:
+        needs: binaries
+        strategy:
+            matrix:
+                os: [ubuntu-latest, macos-latest, windows-latest]
+        runs-on: ${{ matrix.os }}
+        permissions:
+            contents: read
+        steps:
+            - uses: actions/checkout@v4
+            - uses: ./
+              with:
+                  version: ${{ github.ref_name }}
+            - shell: bash
+              env:
+                  EXPECTED_VERSION: ${{ github.ref_name }}
+              run: test "$(maven-r2 --version)" = "$EXPECTED_VERSION"

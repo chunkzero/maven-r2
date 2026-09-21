@@ -1,0 +1,14 @@
+name: Setup Maven R2
+description: Install a pinned Maven R2 CLI release
+inputs:
+    version:
+        description: CLI release tag, such as v0.1.0
+        required: true
+runs:
+    using: composite
+    steps:
+        - name: Install Maven R2
+          shell: bash
+          env:
+              MAVEN_R2_VERSION: ${{ inputs.version }}
+          run: bash "$GITHUB_ACTION_PATH/scripts/setup-cli.sh"

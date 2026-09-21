@@ -1,6 +1,7 @@
 import { createRoute, z } from "@hono/zod-openapi";
 import {
     slug,
+    checksumsSchema,
     publicationSchema as publication,
     uploadSchema as upload,
     errorSchema as error,
@@ -71,7 +72,7 @@ export const initUploadRoute = createRoute({
                         .object({
                             path: z.string().min(1).max(1024),
                             size: z.number().int().min(0),
-                            sha256: z.string().regex(/^[a-f0-9]{64}$/),
+                            checksums: checksumsSchema.openapi("Checksums"),
                         })
                         .openapi("CreateUpload"),
                 },

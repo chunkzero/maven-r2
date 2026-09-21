@@ -54,7 +54,7 @@ func TestUploadResumesPartsAndRetriesTransientFailures(t *testing.T) {
 	}
 	defer file.Close()
 	file.WriteString("123456789")
-	if err = c.Upload(context.Background(), "session", "x", file, 9, "digest"); err != nil {
+	if err = c.Upload(context.Background(), "session", "x", file, 9, api.Checksums{Sha256: "digest"}); err != nil {
 		t.Fatal(err)
 	}
 	if attempts["/api/publications/session/uploads/upload/parts/1"] != 0 {

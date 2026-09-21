@@ -155,15 +155,41 @@
             "type": "integer",
             "minimum": 0
           },
-          "sha256": {
-            "type": "string",
-            "pattern": "^[a-f0-9]{64}$"
+          "checksums": {
+            "$ref": "#/components/schemas/Checksums"
           }
         },
         "required": [
           "path",
           "size",
-          "sha256"
+          "checksums"
+        ]
+      },
+      "Checksums": {
+        "type": "object",
+        "properties": {
+          "md5": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{32}$"
+          },
+          "sha1": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{40}$"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "sha512": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{128}$"
+          }
+        },
+        "required": [
+          "md5",
+          "sha1",
+          "sha256",
+          "sha512"
         ]
       }
     },

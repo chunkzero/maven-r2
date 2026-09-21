@@ -2,8 +2,11 @@ package proxy
 
 import (
 	"context"
+	"crypto/md5"
 	"crypto/rand"
+	"crypto/sha1"
 	"crypto/sha256"
+	"crypto/sha512"
 	"crypto/subtle"
 	"encoding/hex"
 	"errors"
@@ -18,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/chunkzero/maven-r2/internal/api"
 	"github.com/chunkzero/maven-r2/internal/client"
 )
 
@@ -172,8 +176,8 @@ func (s *Server) upload(ctx context.Context, path string, body io.Reader, length
 	}
 	defer os.Remove(file.Name())
 	defer file.Close()
-	digest := sha256.New()
-	size, err := io.Copy(io.MultiWriter(file, digest), io.LimitReader(body, s.MaxFileBytes+1))
+	md5Hash, sha1Hash, sha256Hash, sha512Hash := md5.New(), sha1.New(), sha256.New(), sha512.New()
+	size, err := io.Copy(io.MultiWriter(file, md5Hash, sha1Hash, sha256Hash, sha512Hash), io.LimitReader(body, s.MaxFileBytes+1))
 	if err != nil {
 		return err
 	}
@@ -183,7 +187,13 @@ func (s *Server) upload(ctx context.Context, path string, body io.Reader, length
 	if length >= 0 && size != length {
 		return fmt.Errorf("incomplete upload body")
 	}
-	if err = s.Client.Upload(ctx, s.Session, path, file, size, hex.EncodeToString(digest.Sum(nil))); err != nil {
+	checksums := api.Checksums{
+		Md5:    hex.EncodeToString(md5Hash.Sum(nil)),
+		Sha1:   hex.EncodeToString(sha1Hash.Sum(nil)),
+		Sha256: hex.EncodeToString(sha256Hash.Sum(nil)),
+		Sha512: hex.EncodeToString(sha512Hash.Sum(nil)),
+	}
+	if err = s.Client.Upload(ctx, s.Session, path, file, size, checksums); err != nil {
 		return err
 	}
 	if s.Log != nil {

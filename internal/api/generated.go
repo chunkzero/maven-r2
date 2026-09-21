@@ -55,6 +55,14 @@ func (e UploadStatus) Valid() bool {
 	}
 }
 
+// Checksums defines model for Checksums.
+type Checksums struct {
+	Md5    string `json:"md5"`
+	Sha1   string `json:"sha1"`
+	Sha256 string `json:"sha256"`
+	Sha512 string `json:"sha512"`
+}
+
 // CreatePublication defines model for CreatePublication.
 type CreatePublication struct {
 	Account    string  `json:"account"`
@@ -64,9 +72,9 @@ type CreatePublication struct {
 
 // CreateUpload defines model for CreateUpload.
 type CreateUpload struct {
-	Path   string `json:"path"`
-	Sha256 string `json:"sha256"`
-	Size   int    `json:"size"`
+	Checksums Checksums `json:"checksums"`
+	Path      string    `json:"path"`
+	Size      int       `json:"size"`
 }
 
 // Error defines model for Error.

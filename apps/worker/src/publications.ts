@@ -9,6 +9,7 @@ import {
     publicationSchema,
     uploadSchema,
     errorSchema,
+    type Checksums,
 } from "@maven-r2/contracts";
 import { HTTPException } from "hono/http-exception";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
@@ -32,7 +33,7 @@ import {
     type Principal,
 } from "./security";
 import { checksumBase, coordinates, isMetadata, publicationAction } from "./metadata";
-import { PART_SIZE, MAX_METADATA_SIZE, digestStream } from "./storage";
+import { PART_SIZE, MAX_METADATA_SIZE } from "./storage";
 import { serveFile } from "./downloads";
 
 export async function sessionAccess(
@@ -248,12 +249,12 @@ export function registerPublications(app: OpenAPIHono<AppEnv>) {
                 );
             }
         }
-        const object = await c.env.BUCKET.get(upload.object_key);
+        const object = await c.env.BUCKET.head(upload.object_key);
         if (!object) fail(409, "Upload has missing parts");
-        const { checksums } = await digestStream(object.body, upload.size);
-        if (checksums.sha256 !== upload.sha256) fail(400, "Artifact checksum mismatch");
-        await c.env.DB.prepare("UPDATE uploads SET status='complete',checksums=? WHERE id=?")
-            .bind(JSON.stringify(checksums), upload.id)
+        if (object.size !== upload.size) fail(400, "Object size mismatch");
+        if (!upload.checksums) fail(409, "Restart this upload with client-computed checksums");
+        await c.env.DB.prepare("UPDATE uploads SET status='complete' WHERE id=?")
+            .bind(upload.id)
             .run();
         return c.json(await uploadView(c.env, { ...upload, status: "complete" }), 200);
     });
@@ -376,10 +377,11 @@ export async function initiateUpload(
     env: Env,
     principal: Principal,
     sessionId: string,
-    input: { path: string; size: number; sha256: string },
+    input: { path: string; size: number; checksums: Checksums },
 ) {
     const { session, repo } = await sessionAccess(env, principal, sessionId, true);
     const path = canonicalPath(input.path);
+    const checksums = JSON.stringify(input.checksums);
     await authorizeUpload(env, principal, repo, session.id, path);
     if (input.size > repo.max_file_bytes || input.size > Number(env.MAX_FILE_BYTES))
         fail(413, "Artifact exceeds the repository file limit");
@@ -393,7 +395,7 @@ export async function initiateUpload(
     let existing = await env.DB.prepare("SELECT * FROM uploads WHERE publication_id=? AND path=?")
         .bind(session.id, path)
         .first<UploadRow>();
-    if (existing && (existing.sha256 !== input.sha256 || existing.size !== input.size)) {
+    if (existing && (existing.checksums !== checksums || existing.size !== input.size)) {
         // Maven re-uploads group metadata as each reactor module merges its plugin prefix.
         if (!isMetadata(checksumBase(path)?.path ?? path))
             fail(409, "This path already has different content in the publication");
@@ -408,17 +410,17 @@ export async function initiateUpload(
             ).bind(existing.object_key, existing.multipart_id, Date.now() + 60_000),
             env.DB.prepare("DELETE FROM upload_parts WHERE upload_id=?").bind(existing.id),
             env.DB.prepare(
-                "UPDATE uploads SET object_key=?,size=?,sha256=?,status='pending',multipart_id=NULL,checksums=NULL WHERE id=?",
-            ).bind(key, input.size, input.sha256, existing.id),
+                "UPDATE uploads SET object_key=?,size=?,sha256=?,status='pending',multipart_id=NULL,checksums=? WHERE id=?",
+            ).bind(key, input.size, input.checksums.sha256, checksums, existing.id),
         ]);
         existing = {
             ...existing,
             object_key: key,
             size: input.size,
-            sha256: input.sha256,
+            sha256: input.checksums.sha256,
             status: "pending",
             multipart_id: null,
-            checksums: null,
+            checksums,
         };
     }
     if (existing) {
@@ -445,10 +447,10 @@ export async function initiateUpload(
         path,
         object_key: key,
         size: input.size,
-        sha256: input.sha256,
+        sha256: input.checksums.sha256,
         status: "pending",
         multipart_id: null,
-        checksums: null,
+        checksums,
     };
     await reserve(env, [
         env.DB.prepare("UPDATE accounts SET reserved_bytes=reserved_bytes+? WHERE id=?").bind(
@@ -456,8 +458,8 @@ export async function initiateUpload(
             repo.account_id,
         ),
         env.DB.prepare(
-            "INSERT INTO uploads (id,publication_id,path,object_key,size,sha256,status) VALUES (?,?,?,?,?,?,'pending')",
-        ).bind(id, session.id, path, key, input.size, input.sha256),
+            "INSERT INTO uploads (id,publication_id,path,object_key,size,sha256,checksums,status) VALUES (?,?,?,?,?,?,?,'pending')",
+        ).bind(id, session.id, path, key, input.size, input.checksums.sha256, checksums),
     ]);
     if (input.size > PART_SIZE) {
         const multipart = await env.BUCKET.createMultipartUpload(key);

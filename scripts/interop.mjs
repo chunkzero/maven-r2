@@ -282,8 +282,58 @@ try {
     await page.getByRole("button", { name: "Create token", exact: true }).click();
     const dialog = page.getByRole("dialog");
     await dialog.getByLabel("Token name").fill("Browser verification");
-    await dialog.getByLabel("Allowed namespaces or paths").fill("com/example/mavenr2");
+    const firstScope = dialog.getByRole("group", { name: "Scope 1", exact: true });
+    await expect(dialog.getByRole("button", { name: "Create token", exact: true })).toBeDisabled();
+    await expect(dialog.getByRole("button", { name: "Remove scope 1" })).toBeDisabled();
+    await firstScope
+        .getByRole("combobox", { name: "Repository", exact: true })
+        .selectOption("releases");
+    await firstScope.getByLabel("Allowed namespaces or paths").fill("com/example/mavenr2");
+    await firstScope.getByLabel("Read artifacts").uncheck();
+    await firstScope.getByLabel("Publish snapshots").uncheck();
+    await firstScope.getByLabel("Publish releases").uncheck();
+    await expect(dialog.getByRole("button", { name: "Create token", exact: true })).toBeDisabled();
+    await firstScope.getByLabel("Publish releases").check();
+    await dialog.getByRole("button", { name: "Add repository scope" }).click();
+    await expect(dialog.getByRole("button", { name: "Create token", exact: true })).toBeDisabled();
+    const secondScope = dialog.getByRole("group", { name: "Scope 2", exact: true });
+    await secondScope
+        .getByRole("combobox", { name: "Repository", exact: true })
+        .selectOption("snapshots");
+    await secondScope
+        .getByLabel("Allowed namespaces or paths")
+        .fill("com/example/mavenr2/snapshot");
+    await secondScope.getByLabel("Read artifacts").uncheck();
+    await secondScope.getByLabel("Publish releases").uncheck();
+    await dialog.getByRole("button", { name: "Add repository scope" }).click();
+    await dialog.getByRole("button", { name: "Remove scope 3" }).click();
+    await expect(secondScope.getByLabel("Allowed namespaces or paths")).toHaveValue(
+        "com/example/mavenr2/snapshot",
+    );
+    await page.screenshot({ path: join(screenshots, "token-scopes.png"), fullPage: true });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.screenshot({ path: join(screenshots, "token-scopes-mobile.png"), fullPage: true });
+    assert.ok(
+        await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth),
+        "Token form overflows horizontally",
+    );
+    const createdToken = page.waitForResponse(
+        (response) =>
+            new URL(response.url()).pathname === "/api/accounts/test/tokens" &&
+            response.request().method() === "POST",
+    );
     await dialog.getByRole("button", { name: "Create token", exact: true }).click();
+    const tokenResponse = await createdToken;
+    assert.equal(tokenResponse.status(), 201);
+    const { token: scopedToken } = await tokenResponse.json();
+    assert.deepEqual(scopedToken.scopes, [
+        { repository: "releases", prefixes: ["com/example/mavenr2"], actions: ["publish:release"] },
+        {
+            repository: "snapshots",
+            prefixes: ["com/example/mavenr2/snapshot"],
+            actions: ["publish:snapshot"],
+        },
+    ]);
     await expect(page.getByRole("dialog", { name: "Your token is ready" })).toBeVisible();
     await page.getByRole("button", { name: "Done", exact: true }).click();
     await page.getByRole("button", { name: "Revoke Browser verification" }).click();

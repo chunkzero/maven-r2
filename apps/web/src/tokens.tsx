@@ -8,6 +8,7 @@ import {
     tokenSchema,
     type Action,
 } from "@maven-r2/contracts/schemas";
+import { colors } from "./theme.stylex";
 import { api, ok, useAction, useApi } from "./api";
 import { useWorkspace } from "./app";
 import {
@@ -39,6 +40,33 @@ const labels: Record<Action, string> = {
     delete: "Delete versions",
 };
 
+type ScopeDraft = {
+    id: string;
+    repository: string;
+    prefixes: string;
+    permissions: Action[];
+};
+function newScope(): ScopeDraft {
+    return {
+        id: crypto.randomUUID(),
+        repository: "",
+        prefixes: "",
+        permissions: ["read", "publish:release", "publish:snapshot"],
+    };
+}
+const styles = stylex.create({
+    addScope: { marginBottom: 14 },
+    scope: {
+        borderWidth: 1,
+        borderStyle: "solid",
+        borderColor: colors.line,
+        borderRadius: 6,
+        padding: 14,
+        margin: "0 0 14px",
+        minWidth: 0,
+    },
+});
+
 export function Tokens() {
     const { account } = useWorkspace(),
         base = `/api/accounts/${account.slug}`,
@@ -57,8 +85,8 @@ export function Tokens() {
                 </Button>
             </PageHeader>
             <p {...stylex.props(ui.p, ui.muted)}>
-                Tokens are scoped to a repository and optional path prefixes. Use a service account
-                for CI so access does not depend on a person.
+                Tokens can cover multiple repositories, each with its own paths and operations. Use
+                a service account for CI so access does not depend on a person.
             </p>
             <ErrorNotice error={tokens.error} />
             {tokens.isPending ? (
@@ -130,27 +158,35 @@ function CreateToken({ close }: { close: () => void }) {
     const repos = useApi(base + "/repositories", z.array(repositorySchema)),
         services = useApi(base + "/services", z.array(serviceAccountSchema), admin);
     const [name, setName] = useState(""),
-        [repository, setRepository] = useState(""),
+        [scopes, setScopes] = useState<ScopeDraft[]>(() => [newScope()]),
         [service, setService] = useState(""),
-        [prefixes, setPrefixes] = useState(""),
         [days, setDays] = useState("30"),
-        [permissions, setPermissions] = useState<Action[]>([
-            "read",
-            "publish:release",
-            "publish:snapshot",
-        ]),
         [secret, setSecret] = useState("");
-    const repo = repository || repos.data?.[0]?.slug || "";
     const owner = service ? services.data?.find((item) => item.id === service) : null;
     const publish = (owner?.role ?? account.role) !== "reader";
     const available = action.options.filter((item) =>
         item === "read" ? true : item === "delete" ? admin && !service : publish,
     );
-    const chosen = permissions.filter((permission) => available.includes(permission));
-    const paths = prefixes
-        .split(/[\n,]/)
-        .map((value) => value.trim())
-        .filter(Boolean);
+    const submittedScopes = scopes.map((scope) => {
+        const paths = scope.prefixes
+            .split(/[\n,]/)
+            .map((path) => path.trim())
+            .filter(Boolean);
+        return {
+            repository: scope.repository,
+            prefixes: paths.length ? paths : [""],
+            actions: scope.permissions.filter((permission) => available.includes(permission)),
+        };
+    });
+    const tooManyPaths =
+        submittedScopes.reduce((count, scope) => count + scope.prefixes.length, 0) > 20;
+    const valid =
+        !tooManyPaths && submittedScopes.every((scope) => scope.repository && scope.actions.length);
+    function updateScope(id: string, change: Partial<ScopeDraft>) {
+        setScopes((current) =>
+            current.map((scope) => (scope.id === id ? { ...scope, ...change } : scope)),
+        );
+    }
     const create = useAction(async () => {
         const result = await api(
             base + "/tokens",
@@ -158,13 +194,7 @@ function CreateToken({ close }: { close: () => void }) {
             "POST",
             {
                 name,
-                scopes: [
-                    {
-                        repository: repo,
-                        prefixes: paths.length ? paths : [""],
-                        actions: chosen,
-                    },
-                ],
+                scopes: submittedScopes,
                 ...(service ? { serviceAccountId: service } : {}),
                 expiresAt: expiry(days),
             },
@@ -192,7 +222,7 @@ function CreateToken({ close }: { close: () => void }) {
             <form
                 onSubmit={(e) => {
                     e.preventDefault();
-                    create.mutate();
+                    if (valid) create.mutate();
                 }}
             >
                 <Field label="Token name">
@@ -203,64 +233,108 @@ function CreateToken({ close }: { close: () => void }) {
                         maxLength={100}
                     />
                 </Field>
-                <div {...stylex.props(ui.row)}>
-                    {admin && (
-                        <Field label="Owner">
-                            <Select value={service} onChange={(e) => setService(e.target.value)}>
-                                <option value="">My account</option>
-                                {services.data
-                                    ?.filter((service) => !service.disabled)
-                                    .map((service) => (
-                                        <option value={service.id} key={service.id}>
-                                            {service.name}
-                                        </option>
-                                    ))}
-                            </Select>
-                        </Field>
-                    )}
-                    <Field label="Repository">
-                        <Select
-                            required
-                            value={repo}
-                            onChange={(e) => setRepository(e.target.value)}
-                        >
-                            {repos.data?.map((repo) => (
-                                <option key={repo.id} value={repo.slug}>
-                                    {repo.name}
-                                </option>
-                            ))}
+                {admin && (
+                    <Field label="Owner">
+                        <Select value={service} onChange={(e) => setService(e.target.value)}>
+                            <option value="">My account</option>
+                            {services.data
+                                ?.filter((service) => !service.disabled)
+                                .map((service) => (
+                                    <option value={service.id} key={service.id}>
+                                        {service.name}
+                                    </option>
+                                ))}
                         </Select>
                     </Field>
-                </div>
-                <Field
-                    label="Allowed namespaces or paths"
-                    hint="One path prefix per line, such as com/acme/sdk. Leave blank for the whole repository."
-                >
-                    <Textarea
-                        value={prefixes}
-                        onChange={(e) => setPrefixes(e.target.value)}
-                        rows={3}
-                    />
-                </Field>
-                <fieldset {...stylex.props(ui.fieldset)}>
-                    <legend {...stylex.props(ui.legend)}>Allowed operations</legend>
-                    {available.map((permission) => (
-                        <label key={permission} {...stylex.props(ui.check)}>
-                            <input
-                                type="checkbox"
-                                checked={permissions.includes(permission)}
+                )}
+                <ErrorNotice error={repos.error ?? services.error} />
+                {scopes.map((scope, index) => (
+                    <fieldset
+                        key={scope.id}
+                        aria-label={`Scope ${index + 1}`}
+                        {...stylex.props(styles.scope)}
+                    >
+                        <legend {...stylex.props(ui.legend)}>Scope {index + 1}</legend>
+                        <Field label="Repository">
+                            <Select
+                                required
+                                value={scope.repository}
                                 onChange={(e) =>
-                                    setPermissions(
-                                        e.target.checked
-                                            ? [...permissions, permission]
-                                            : permissions.filter((item) => item !== permission),
-                                    )
+                                    updateScope(scope.id, { repository: e.target.value })
                                 }
+                            >
+                                <option value="" disabled>
+                                    Select a repository
+                                </option>
+                                {repos.data?.map((repo) => (
+                                    <option key={repo.id} value={repo.slug}>
+                                        {repo.name}
+                                    </option>
+                                ))}
+                            </Select>
+                        </Field>
+                        <Field
+                            label="Allowed namespaces or paths"
+                            hint="One path prefix per line, such as com/acme/sdk. Leave blank for the whole repository."
+                        >
+                            <Textarea
+                                value={scope.prefixes}
+                                onChange={(e) =>
+                                    updateScope(scope.id, { prefixes: e.target.value })
+                                }
+                                rows={2}
                             />
-                            {labels[permission]}
-                        </label>
-                    ))}
-                </fieldset>
+                        </Field>
+                        <fieldset {...stylex.props(ui.fieldset)}>
+                            <legend {...stylex.props(ui.legend)}>Allowed operations</legend>
+                            {available.map((permission) => (
+                                <label key={permission} {...stylex.props(ui.check)}>
+                                    <input
+                                        type="checkbox"
+                                        checked={scope.permissions.includes(permission)}
+                                        onChange={(e) =>
+                                            updateScope(scope.id, {
+                                                permissions: e.target.checked
+                                                    ? [...scope.permissions, permission]
+                                                    : scope.permissions.filter(
+                                                          (item) => item !== permission,
+                                                      ),
+                                            })
+                                        }
+                                    />
+                                    {labels[permission]}
+                                </label>
+                            ))}
+                        </fieldset>
+                        <Button
+                            type="button"
+                            small
+                            disabled={scopes.length === 1}
+                            aria-label={`Remove scope ${index + 1}`}
+                            onClick={() =>
+                                setScopes((current) =>
+                                    current.filter((item) => item.id !== scope.id),
+                                )
+                            }
+                        >
+                            Remove scope
+                        </Button>
+                    </fieldset>
+                ))}
+                <Button
+                    type="button"
+                    sx={styles.addScope}
+                    disabled={scopes.length >= 20 || repos.isPending || !!repos.error}
+                    onClick={() => setScopes((current) => [...current, newScope()])}
+                >
+                    Add repository scope
+                </Button>
+                {tooManyPaths && (
+                    <p role="alert" {...stylex.props(ui.notice)}>
+                        Use at most 20 path prefixes across all scopes. A whole-repository scope
+                        counts as one.
+                    </p>
+                )}
                 <Field label="Expires after">
                     <Select value={days} onChange={(e) => setDays(e.target.value)}>
                         <option value="30">30 days</option>
@@ -274,7 +348,16 @@ function CreateToken({ close }: { close: () => void }) {
                     <Button type="button" onClick={close}>
                         Cancel
                     </Button>
-                    <Button primary disabled={create.isPending || !repo || !chosen.length}>
+                    <Button
+                        primary
+                        disabled={
+                            create.isPending ||
+                            !valid ||
+                            repos.isPending ||
+                            !!repos.error ||
+                            (admin && (services.isPending || !!services.error))
+                        }
+                    >
                         Create token
                     </Button>
                 </div>

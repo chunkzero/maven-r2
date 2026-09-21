@@ -118,7 +118,8 @@ export function App() {
                                 small
                                 onClick={async () => {
                                     await authClient.signOut();
-                                    location.assign("/#/");
+                                    history.replaceState(null, "", "/#/");
+                                    location.reload();
                                 }}
                             >
                                 Sign out

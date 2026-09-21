@@ -55,7 +55,23 @@ Uploads are staged remotely before the proxy responds. For large artifacts, incr
 
 ### CI
 
-Set `MAVEN_R2_SERVER` and `MAVEN_R2_TOKEN`, then run the same `publish` command without a profile. Use a service-account token restricted to the repository, artifact path prefix, and publishing operations the project needs.
+On GitHub Actions, install a specific CLI release with the setup action:
+
+```yaml
+- uses: chunkzero/maven-r2@v1
+  with:
+      version: v0.1.0
+
+- name: Publish
+  env:
+      MAVEN_R2_SERVER: https://repo.example.com
+      MAVEN_R2_TOKEN: ${{ secrets.MAVEN_R2_TOKEN }}
+  run: maven-r2 publish --repository default/releases -- ./gradlew publish
+```
+
+Set up your project's build tools before publishing. The action supports Linux, macOS, and Windows runners on x64 and ARM64, downloads the binary from this repository's public releases, and verifies its SHA-256 checksum. Self-hosted runners need Bash, curl, and either sha256sum or shasum. Windows also needs Git Bash with cygpath. The required `version` input selects the CLI release independently of the action's `@v1` ref. Pin the action to a commit SHA if you need an immutable reference.
+
+Outside GitHub Actions, set `MAVEN_R2_SERVER` and `MAVEN_R2_TOKEN`, then run the same `publish` command without a profile. Use a service-account token restricted to the repository, artifact path prefix, and publishing operations the project needs.
 
 If the build also downloads private dependencies, give it a separate read token. The CLI removes `MAVEN_R2_TOKEN` from the build's environment.
 

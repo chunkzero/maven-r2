@@ -175,7 +175,11 @@ export class RepositoryCoordinator extends DurableObject<Env> {
                 fail(400, "Signatures on mutable repository metadata are unsupported");
             const c = coordinates(base)!;
             const old = originals.get(upload.path);
-            if ((!c.snapshot || c.timestamp) && old && old.sha256 !== upload.sha256)
+            if (
+                (!c.snapshot || c.timestamp) &&
+                old &&
+                (old.sha256 !== upload.sha256 || old.size !== upload.size)
+            )
                 fail(409, "Release artifacts and timestamped snapshots are immutable");
             if (
                 !c.snapshot &&
@@ -185,7 +189,7 @@ export class RepositoryCoordinator extends DurableObject<Env> {
                 fail(409, "This release version is already published");
             if (upload.path.endsWith(".pom"))
                 validatePom(await readSmall(this.env, upload.object_key), upload.path);
-            if (old?.sha256 === upload.sha256) continue;
+            if (old?.sha256 === upload.sha256 && old.size === upload.size) continue;
             const file: FileRow = {
                 repository_id: repo.id,
                 path: upload.path,
@@ -219,7 +223,7 @@ export class RepositoryCoordinator extends DurableObject<Env> {
                     .split(/\s+/)[0]
                     ?.toLowerCase();
                 if (supplied !== (JSON.parse(base.checksums) as Checksums)[checksum.algorithm])
-                    fail(400, "Uploaded checksum does not match the artifact");
+                    fail(400, "Uploaded checksum does not match the declared artifact checksum");
             }
         }
         const metadataPaths = new Set(

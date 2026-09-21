@@ -1,6 +1,13 @@
 import { z } from "zod";
 
 export const slug = z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}$/);
+export const checksumsSchema = z.object({
+    md5: z.string().regex(/^[a-f0-9]{32}$/),
+    sha1: z.string().regex(/^[a-f0-9]{40}$/),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/),
+    sha512: z.string().regex(/^[a-f0-9]{128}$/),
+});
+export type Checksums = z.infer<typeof checksumsSchema>;
 export const role = z.enum(["owner", "admin", "publisher", "reader"]);
 export const action = z.enum(["read", "publish:release", "publish:snapshot", "delete"]);
 export const scope = z.object({

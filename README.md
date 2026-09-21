@@ -8,7 +8,7 @@ A Maven repository backed by Cloudflare R2, with a standalone Go publishing clie
 
 - Release, snapshot, and mixed repositories; public or private visibility.
 - Atomic publication sessions, immutable releases and timestamped snapshots, concurrent metadata merging, resumable multipart uploads, and failed-build rollback.
-- Maven POMs, parent POMs, Gradle module metadata, classifiers, detached signatures, and MD5/SHA-1/SHA-256/SHA-512 sidecars. The server verifies supplied checksums and generates checksums for its own metadata.
+- Maven POMs, parent POMs, Gradle module metadata, classifiers, detached signatures, and MD5/SHA-1/SHA-256/SHA-512 sidecars. The Go CLI computes artifact checksums; the server checks supplied sidecars against those declarations and generates checksums for its own metadata.
 - Direct downloads with Basic or Bearer token authentication, conditional GET, HEAD, and byte ranges. Public repositories need no credentials.
 - Configurable repository URLs, including a release repository at the domain root and snapshots at `/snapshots`, in single- or multiple-workspace instances.
 - Single-workspace or multiple-workspace instances, GitHub login, optional OIDC, configurable signups, invitation links, and owner/admin/publisher/reader roles.
@@ -30,9 +30,9 @@ A Maven repository backed by Cloudflare R2, with a standalone Go publishing clie
 | Approach                      | Advantages                                                                                   | Costs                                                                                                                            |
 | ----------------------------- | -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | Presigned R2 uploads          | Artifact bytes bypass Worker execution; useful for very large transfers                      | Requires S3 signing credentials, grants remain usable until expiry, multipart coordination and final validation are still needed |
-| Worker streaming, implemented | Binding-based R2 access, immediate authorization checks, one protocol and deployment surface | More Worker requests; full-file checksum validation reads uploaded bytes again; CPU and D1 limits need capacity planning         |
+| Worker streaming, implemented | Binding-based R2 access, immediate authorization checks, one protocol and deployment surface | More Worker requests; publisher-provided multipart checksums; CPU and D1 limits need capacity planning                           |
 
-The part size keeps individual requests below normal Worker request-body limits. This implementation targets **Workers Paid** for finalization and checksum-validation budgets; review [Worker limits](https://developers.cloudflare.com/workers/platform/limits/) and [D1 limits](https://developers.cloudflare.com/d1/platform/limits/) for your workload. A future presigned transport can use the same staging and commit model without changing build configuration.
+The part size keeps individual requests below normal Worker request-body limits. Artifact hashing runs in the Go CLI. **Workers Free** deployments must remove `limits.cpu_ms` from their deployment configuration and validate their workload against the CPU, subrequest, and database limits; review [Worker limits](https://developers.cloudflare.com/workers/platform/limits/) and [D1 limits](https://developers.cloudflare.com/d1/platform/limits/) for your workload. Free-tier suitability is not guaranteed by moving hashing off the Worker. A future presigned transport can use the same staging and commit model without changing build configuration.
 
 ## Development
 
@@ -139,7 +139,7 @@ maven-r2 --profile work publish --repository acme/releases -- ./gradlew publish
 maven-r2 --profile work publish --repository acme/snapshots -- mvn -s settings.xml deploy
 ```
 
-The CLI launches a loopback-only proxy with a random per-run credential, starts the build, and commits after a successful exit. Configure publishing to use the injected `MAVEN_R2_URL`, `MAVEN_R2_USERNAME`, and `MAVEN_R2_PASSWORD`. The remote token is removed from the child's environment. The proxy spools at most four files concurrently to temporary files, checks their hashes, uploads resumable parts, and cleans up the spool files.
+The CLI launches a loopback-only proxy with a random per-run credential, starts the build, and commits after a successful exit. Configure publishing to use the injected `MAVEN_R2_URL`, `MAVEN_R2_USERNAME`, and `MAVEN_R2_PASSWORD`. The remote token is removed from the child's environment. The proxy spools at most four files concurrently to temporary files, computes MD5/SHA-1/SHA-256/SHA-512 in the same pass, uploads resumable parts, and cleans up the spool files.
 
 Gradle publishing configuration:
 
@@ -157,6 +157,8 @@ publishing {
     }
 }
 ```
+
+Artifact checksums are publisher-provided declarations. R2 verifies SHA-256 for single-part uploads; multipart uploads are checked for completeness and stored size without the Worker rereading their contents. Sidecars must match the declared hashes, and server-generated metadata is hashed on the Worker. Clients and the Worker must be upgraded together: upload requests require all four hashes. Restart pending publications created by an older client. An identical retry is identified by the declared hashes and size; it never replaces an already published release object.
 
 The proxy answers each upload only after the file is staged remotely. Gradle's HTTP client gives up after 30 seconds by default, so set `systemProp.org.gradle.internal.http.socketTimeout` in `gradle.properties` to cover your largest artifact, as the Gradle example does. Maven's default timeout is long enough.
 

@@ -102,9 +102,9 @@ func (c *Client) Abort(ctx context.Context, id string) error {
 	return err
 }
 
-func (c *Client) Upload(ctx context.Context, session, path string, file *os.File, size int64, digest string) error {
+func (c *Client) Upload(ctx context.Context, session, path string, file *os.File, size int64, checksums api.Checksums) error {
 	upload, err := retry(ctx, func() (api.Upload, error) {
-		response, err := c.API.CreateUpload(ctx, session, api.CreateUpload{Path: path, Size: int(size), Sha256: digest})
+		response, err := c.API.CreateUpload(ctx, session, api.CreateUpload{Path: path, Size: int(size), Checksums: checksums})
 		return decode[api.Upload](response, err)
 	})
 	if err != nil {

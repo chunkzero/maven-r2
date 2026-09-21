@@ -1,4 +1,4 @@
-import { createHmac } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { auth } from "../src/auth";
 import { cleanup } from "../src/cleanup";
 import { env } from "cloudflare:workers";
@@ -33,16 +33,21 @@ async function begin(repository = "releases") {
         201,
     );
 }
+function checksums(content: string | Uint8Array) {
+    return {
+        md5: createHash("md5").update(content).digest("hex"),
+        sha1: createHash("sha1").update(content).digest("hex"),
+        sha256: createHash("sha256").update(content).digest("hex"),
+        sha512: createHash("sha512").update(content).digest("hex"),
+    };
+}
 async function stage(session: string, path: string, content: string | Uint8Array<ArrayBuffer>) {
     const bytes = typeof content === "string" ? new TextEncoder().encode(content) : content;
-    const sha256 = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), (b) =>
-        b.toString(16).padStart(2, "0"),
-    ).join("");
     const upload = await json<Upload>(
         await request(`/api/publications/${session}/uploads`, "POST", {
             path,
             size: bytes.length,
-            sha256,
+            checksums: checksums(bytes),
         }),
     );
     for (
@@ -105,6 +110,14 @@ describe("publication and Maven protocol", () => {
         expect(await file.text()).toBe("artifact");
         expect((await request(path, "GET", undefined, "")).status).toBe(401);
         expect(await (await request(path + ".sha256")).text()).toBe(await hash("artifact"));
+        for (const [algorithm, value] of Object.entries(checksums("artifact"))) {
+            expect(await (await request(path + "." + algorithm)).text()).toBe(value);
+        }
+        const metadataPath = "/maven/test/releases/com/acme/demo/maven-metadata.xml";
+        const metadataText = await (await request(metadataPath)).text();
+        expect(await (await request(metadataPath + ".sha256")).text()).toBe(
+            await hash(metadataText),
+        );
         const metadata = parseMetadata(
             await (await request("/maven/test/releases/com/acme/demo/maven-metadata.xml")).text(),
         );
@@ -172,7 +185,7 @@ describe("publication and Maven protocol", () => {
         const conflict = await request(`/api/publications/${session.id}/uploads`, "POST", {
             path: "com/acme/demo/1.0/demo-1.0.jar",
             size: 9,
-            sha256: "0".repeat(64),
+            checksums: checksums("different"),
         });
         expect(conflict.status).toBe(409);
         await json(await request(`/api/publications/${session.id}/commit`, "POST"));
@@ -205,20 +218,61 @@ describe("publication and Maven protocol", () => {
             )?.value,
         ).toBe("1.0-20260920.120000-1");
     });
-    it("uploads and verifies multipart artifacts", async () => {
+    it("uploads multipart artifacts with publisher-provided checksums", async () => {
         const session = await begin();
         await stage(session.id, "com/acme/demo/1.0/demo-1.0.pom", pom("1.0"));
-        await stage(
-            session.id,
-            "com/acme/demo/1.0/demo-1.0.jar",
-            new Uint8Array(PART_SIZE + 8).fill(7),
-        );
+        const bytes = new Uint8Array(PART_SIZE + 8).fill(7);
+        const read = vi.spyOn(env.BUCKET, "get");
+        try {
+            await stage(session.id, "com/acme/demo/1.0/demo-1.0.jar", bytes);
+            expect(read).not.toHaveBeenCalled();
+        } finally {
+            read.mockRestore();
+        }
         await json(await request(`/api/publications/${session.id}/commit`, "POST"));
         expect(
             (
                 await request("/maven/test/releases/com/acme/demo/1.0/demo-1.0.jar", "HEAD")
             ).headers.get("content-length"),
         ).toBe(String(PART_SIZE + 8));
+    });
+    it("requires complete checksum declarations and preserves them across retries", async () => {
+        const session = await begin();
+        const endpoint = `/api/publications/${session.id}/uploads`;
+        const input = {
+            path: "com/acme/demo/1.0/demo-1.0.jar",
+            size: 8,
+            checksums: checksums("artifact"),
+        };
+        expect((await request(endpoint, "POST", { ...input, checksums: undefined })).status).toBe(
+            400,
+        );
+        expect(
+            (
+                await request(endpoint, "POST", {
+                    ...input,
+                    checksums: { ...input.checksums, md5: "invalid" },
+                })
+            ).status,
+        ).toBe(400);
+        const upload = await json<Upload>(await request(endpoint, "POST", input));
+        expect((await json<Upload>(await request(endpoint, "POST", input))).id).toBe(upload.id);
+        expect(
+            (
+                await request(endpoint, "POST", {
+                    ...input,
+                    checksums: { ...input.checksums, sha1: "0".repeat(40) },
+                })
+            ).status,
+        ).toBe(409);
+        expect((await request(endpoint, "POST", { ...input, size: 9 })).status).toBe(409);
+        await env.BUCKET.put(
+            (await env.DB.prepare("SELECT object_key FROM uploads WHERE id=?")
+                .bind(upload.id)
+                .first<{ object_key: string }>())!.object_key,
+            "short",
+        );
+        expect((await request(`${endpoint}/${upload.id}/complete`, "POST")).status).toBe(400);
     });
     it("enforces namespace boundaries, expiry and service account revocation", async () => {
         const row = await env.DB.prepare("SELECT * FROM tokens").first<{
@@ -241,7 +295,7 @@ describe("publication and Maven protocol", () => {
         const denied = await request(`/api/publications/${session.id}/uploads`, "POST", {
             path: "com/acmeevil/demo/1.0/demo-1.0.jar",
             size: 1,
-            sha256: await hash("x"),
+            checksums: checksums("x"),
         });
         expect(denied.status).toBe(403);
         await env.DB.prepare("UPDATE service_accounts SET disabled=1 WHERE id=?")
@@ -783,7 +837,7 @@ describe("workspace policies", () => {
                 await request(`/api/publications/${session.id}/uploads`, "POST", {
                     path: "com/acme/demo/1.0/demo-1.0.pom",
                     size: 11,
-                    sha256: await hash("x".repeat(11)),
+                    checksums: checksums("x".repeat(11)),
                 })
             ).status,
         ).toBe(413);

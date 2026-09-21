@@ -28,7 +28,10 @@
     "triggers": { "crons": ["17 * * * *"] },
     "vars": {
         "APP_URL": "http://localhost:5173",
-        "REPOSITORY_MAPPINGS": [],
+        "REPOSITORY_MAPPINGS": [
+            { "url": "/", "account": "default", "repository": "releases" },
+            { "url": "/snapshots", "account": "default", "repository": "snapshots" },
+        ],
         "INSTANCE_MODE": "single",
         "SIGNUP_MODE": "closed",
         "ALLOW_ACCOUNT_CREATION": "false",

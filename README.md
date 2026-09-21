@@ -187,37 +187,39 @@ Public repositories need only the URL. For private repositories, use any Basic-a
 
 ### Custom repository URLs
 
-Set `vars.REPOSITORY_MAPPINGS` in `apps/worker/wrangler.jsonc` to map public URLs to existing account/repository slugs:
+Set `vars.REPOSITORY_MAPPINGS` in `apps/worker/wrangler.jsonc` to map URLs to existing account/repository slugs. Origin-relative URLs resolve against `APP_URL`, so the default configuration serves the bootstrap repositories from the console origin:
 
 ```json
 "REPOSITORY_MAPPINGS": [
     {
-        "url": "https://maven.chunkzero.com",
+        "url": "/",
         "account": "default",
         "repository": "releases"
     },
     {
-        "url": "https://maven.chunkzero.com/snapshots",
+        "url": "/snapshots",
         "account": "default",
         "repository": "snapshots"
     }
 ]
 ```
 
-For public repositories, consumers can then use:
+With `APP_URL` set to `https://repo.example.com`, consumers of public repositories can then use:
 
 ```kotlin
 repositories {
-    maven("https://maven.chunkzero.com")
-    maven("https://maven.chunkzero.com/snapshots")
+    maven("https://repo.example.com")
+    maven("https://repo.example.com/snapshots")
 }
 ```
+
+Absolute URLs map repositories hosted on separate custom domains, such as `https://maven.chunkzero.com/snapshots`. Locally, `http://localhost:5173/` and `http://localhost:5173/snapshots/` serve the default repositories because Vite+ forwards them to the Worker without rewriting the host.
 
 Mappings preserve repository visibility, token scopes, and R2 streaming. Bootstrap repositories are private until an administrator changes their visibility; private consumers still need read credentials. Existing `/maven/{account}/{repository}` URLs continue to work, and publishing still uses the account/repository pair through the CLI.
 
 Mappings work in both instance modes. Each URL selects exactly one repository. To serve another account, configure another hostname or path with that account's slugs. Register each hostname as a [Worker custom domain](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/) or Worker route pointing to this Worker; adding a mapping does not provision DNS or TLS. Keep the R2 bucket private.
 
-URLs must use HTTPS, except HTTP on `localhost`, `127.0.0.1`, or `[::1]` for local development. Matching uses the exact origin and the longest matching path prefix at a slash boundary, so `/snapshots` takes precedence over a root mapping. A missing artifact in that repository returns 404 without falling back to another repository. Trailing slashes are optional; duplicate URLs are rejected. `/api`, `/maven`, `/console`, `/health`, `/invite`, `/favicon.ico`, `/robots.txt`, and `/.well-known` are reserved, including their descendants. Nested mappings also reserve their prefixes in the parent mapping; artifacts shadowed by these prefixes remain available at the canonical `/maven/...` URL.
+Relative URLs start with a single slash. Absolute URLs must use HTTPS, except HTTP on `localhost`, `127.0.0.1`, or `[::1]` for local development. Matching uses the exact origin and the longest matching path prefix at a slash boundary, so `/snapshots` takes precedence over a root mapping. A missing artifact in that repository returns 404 without falling back to another repository. Trailing slashes are optional; duplicate URLs are rejected. `/api`, `/maven`, `/console`, `/health`, `/invite`, `/favicon.ico`, `/robots.txt`, and `/.well-known` are reserved, including their descendants. Nested mappings also reserve their prefixes in the parent mapping; artifacts shadowed by these prefixes remain available at the canonical `/maven/...` URL.
 
 The console lives at `/console` and `/` redirects there. `APP_URL` remains the console's origin, without `/console`; OAuth callback URLs stay under `/api/auth`. Existing invitation links under `/invite` redirect to `/console/invite`. Other old console bookmarks need the `/console` prefix. The console displays the first configured mapping for a repository in copyable URLs and dependency snippets, falling back to its canonical URL when no mapping exists. Browser download buttons use the console origin so session credentials work even when a mapping uses another hostname.
 

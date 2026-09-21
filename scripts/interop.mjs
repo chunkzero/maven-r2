@@ -25,8 +25,8 @@ const testConfig = JSON.parse(
 testConfig.main = join(root, "apps/worker/src/index.ts");
 testConfig.vars.APP_URL = origin;
 testConfig.vars.REPOSITORY_MAPPINGS = [
-    { url: origin, account: "test", repository: "releases" },
-    { url: origin + "/snapshots", account: "test", repository: "snapshots" },
+    { url: "/", account: "test", repository: "releases" },
+    { url: "/snapshots", account: "test", repository: "snapshots" },
 ];
 testConfig.d1_databases[0].migrations_dir = join(root, "apps/worker/migrations");
 testConfig.assets = {

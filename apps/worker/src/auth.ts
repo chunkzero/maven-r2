@@ -1,5 +1,4 @@
 import { betterAuth } from "better-auth";
-import { APIError } from "better-auth/api";
 import { genericOAuth } from "better-auth/plugins";
 import { drizzleAdapter } from "@better-auth/drizzle-adapter";
 import { drizzle } from "drizzle-orm/d1";
@@ -33,7 +32,6 @@ export function auth(env: Env) {
                       github: {
                           clientId: env.GITHUB_CLIENT_ID,
                           clientSecret: env.GITHUB_CLIENT_SECRET,
-                          mapProfileToUser: (profile) => ({ githubId: String(profile.id) }),
                       },
                   }
                 : {},
@@ -54,28 +52,45 @@ export function auth(env: Env) {
                       }),
                   ]
                 : [],
-        user: { additionalFields: { githubId: { type: "string", required: false, input: false } } },
+        user: {
+            additionalFields: { githubId: { type: "string", required: false, input: false } },
+            validateUserInfo: async ({ user, source }) => {
+                if (source.action !== "create-user") return;
+                const githubId =
+                    source.method === "oauth" && source.oauth?.providerId === "github"
+                        ? source.oauth.profile?.id
+                        : undefined;
+                if (
+                    ((typeof githubId === "number" || typeof githubId === "string") &&
+                        isInstanceAdmin(env, String(githubId))) ||
+                    env.SIGNUP_MODE === "open"
+                )
+                    return;
+                if (env.SIGNUP_MODE === "invite" && user.emailVerified && user.email) {
+                    const invite = await env.DB.prepare(
+                        "SELECT id FROM invitations WHERE lower(email)=? AND accepted=0 AND expires_at>?",
+                    )
+                        .bind(user.email.toLowerCase(), Date.now())
+                        .first();
+                    if (invite) return;
+                }
+                return {
+                    error: "signup_disabled",
+                    errorDescription: "Signups are disabled or require an invitation.",
+                };
+            },
+        },
         session: { expiresIn: 60 * 60 * 24 * 7, cookieCache: { enabled: false } },
         account: { accountLinking: { enabled: false } },
         rateLimit: { enabled: true, storage: "memory", window: 60, max: 30 },
         databaseHooks: {
-            user: {
+            account: {
                 create: {
-                    before: async (user) => {
-                        const githubId = "githubId" in user ? String(user.githubId) : undefined;
-                        if (isInstanceAdmin(env, githubId) || env.SIGNUP_MODE === "open")
-                            return { data: user };
-                        if (env.SIGNUP_MODE === "invite" && user.emailVerified) {
-                            const invite = await env.DB.prepare(
-                                "SELECT id FROM invitations WHERE lower(email)=? AND accepted=0 AND expires_at>?",
-                            )
-                                .bind(user.email.toLowerCase(), Date.now())
-                                .first();
-                            if (invite) return { data: user };
-                        }
-                        throw new APIError("FORBIDDEN", {
-                            message: "Signups are disabled or require an invitation.",
-                        });
+                    after: async (account) => {
+                        if (account.providerId !== "github") return;
+                        await env.DB.prepare("UPDATE auth_users SET github_id=? WHERE id=?")
+                            .bind(account.accountId, account.userId)
+                            .run();
                     },
                 },
             },

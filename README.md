@@ -4,7 +4,12 @@ A Maven repository backed by Cloudflare R2, with a standalone Go publishing clie
 
 **Publish through the local proxy. Download directly from the hosted repository.** Maven and Gradle use normal HTTP repository protocols; they never receive R2 credentials. A publication becomes visible only after the entire build succeeds and the Worker validates its artifacts.
 
-## What is implemented
+> [!WARNING]
+> Experimental and heavily vibe-coded. It works for our current use, but there are rough edges and it has not had a security audit. Expect bugs and breaking changes to the API, CLI, and storage schema. Keep backups of both D1 and R2; don't make this the only copy of artifacts you care about.
+>
+> See [known limitations](#known-limitations) before deploying your own instance.
+
+## Features
 
 - Release, snapshot, and mixed repositories; public or private visibility.
 - Atomic publication sessions, immutable releases and timestamped snapshots, concurrent metadata merging, resumable multipart uploads, and failed-build rollback.
@@ -16,7 +21,7 @@ A Maven repository backed by Cloudflare R2, with a standalone Go publishing clie
 - A responsive light/dark console for artifact browsing, path search, dependency snippets, publication history, version deletion, repository settings, members, invitations, service accounts, tokens, usage, and audit history.
 - Account storage quotas, upload reservations, snapshot retention, abandoned-session expiry, delayed garbage collection, and request rate limits.
 
-## Architecture and upload choice
+## How it works
 
 | Part                  | Stack                                      | Responsibility                                                                          |
 | --------------------- | ------------------------------------------ | --------------------------------------------------------------------------------------- |
@@ -27,12 +32,7 @@ A Maven repository backed by Cloudflare R2, with a standalone Go publishing clie
 
 **The Worker handles uploads.** The CLI sends 16 MiB parts to the Worker, which streams them into a private R2 bucket. R2 holds immutable objects; D1 maps published Maven paths to those objects. A Durable Object serializes mutations for each repository, and a D1 transaction publishes all file references and merged metadata together. Readers never see a partially finalized publication.
 
-| Approach                      | Advantages                                                                                   | Costs                                                                                                                            |
-| ----------------------------- | -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| Presigned R2 uploads          | Artifact bytes bypass Worker execution; useful for very large transfers                      | Requires S3 signing credentials, grants remain usable until expiry, multipart coordination and final validation are still needed |
-| Worker streaming, implemented | Binding-based R2 access, immediate authorization checks, one protocol and deployment surface | More Worker requests; publisher-provided multipart checksums; CPU and D1 limits need capacity planning                           |
-
-The part size keeps individual requests below normal Worker request-body limits. Artifact hashing runs in the Go CLI. **Workers Free** deployments must remove `limits.cpu_ms` from their deployment configuration and validate their workload against the CPU, subrequest, and database limits; review [Worker limits](https://developers.cloudflare.com/workers/platform/limits/) and [D1 limits](https://developers.cloudflare.com/d1/platform/limits/) for your workload. Free-tier suitability is not guaranteed by moving hashing off the Worker. A future presigned transport can use the same staging and commit model without changing build configuration.
+Artifact hashing runs in the Go CLI. **Workers Free** deployments must remove `limits.cpu_ms` from their deployment configuration. Moving checksums to the CLI does not guarantee that every workload fits the free tier; check the [Worker limits](https://developers.cloudflare.com/workers/platform/limits/) and [D1 limits](https://developers.cloudflare.com/d1/platform/limits/).
 
 ## Development
 
@@ -158,7 +158,7 @@ publishing {
 }
 ```
 
-Artifact checksums are publisher-provided declarations. R2 verifies SHA-256 for single-part uploads; multipart uploads are checked for completeness and stored size without the Worker rereading their contents. Sidecars must match the declared hashes, and server-generated metadata is hashed on the Worker. Clients and the Worker must be upgraded together: upload requests require all four hashes. Restart pending publications created by an older client. An identical retry is identified by the declared hashes and size; it never replaces an already published release object.
+Artifact checksums are publisher-provided declarations. R2 verifies SHA-256 for single-part uploads; multipart uploads are checked for completeness and stored size without the Worker rereading their contents. Sidecars must match the declared hashes, and server-generated metadata is hashed on the Worker. Upload requests require all four hashes; use matching CLI and Worker versions. An identical retry is identified by the declared hashes and size; it never replaces an already published release object.
 
 The proxy answers each upload only after the file is staged remotely. Gradle's HTTP client gives up after 30 seconds by default, so set `systemProp.org.gradle.internal.http.socketTimeout` in `gradle.properties` to cover your largest artifact, as the Gradle example does. Maven's default timeout is long enough.
 
@@ -215,7 +215,7 @@ repositories {
 }
 ```
 
-Absolute URLs map repositories hosted on separate custom domains, such as `https://maven.chunkzero.com/snapshots`. Locally, `http://localhost:5173/` and `http://localhost:5173/snapshots/` serve the default repositories because Vite+ forwards them to the Worker without rewriting the host.
+Absolute URLs map repositories hosted on separate custom domains, such as `https://snapshots.example.com`. Locally, `http://localhost:5173/` and `http://localhost:5173/snapshots/` serve the default repositories because Vite+ forwards them to the Worker without rewriting the host.
 
 Mappings preserve repository visibility, token scopes, and R2 streaming. Bootstrap repositories are private until an administrator changes their visibility; private consumers still need read credentials. Existing `/maven/{account}/{repository}` URLs continue to work, and publishing still uses the account/repository pair through the CLI.
 
@@ -225,11 +225,15 @@ Relative URLs start with a single slash. Absolute URLs must use HTTPS, except HT
 
 The console is served from `/` and routes with a URL hash, for example `/#/default/repositories`, so root mappings and console pages share the origin without ambiguity. Its assets stay under `/console/assets/`, and old `/console/...` bookmarks and `/invite` links redirect to the matching `/#/...` route. `APP_URL` is the console's origin; OAuth callback URLs stay under `/api/auth`. The console displays the first configured mapping for a repository in copyable URLs and dependency snippets, falling back to its canonical URL when no mapping exists. Browser download buttons use the console origin so session credentials work even when a mapping uses another hostname.
 
-## Initial implementation boundaries
+## Known limitations
 
 - GitHub/OIDC provider redirects and deployed Cloudflare behavior require deployment credentials to validate. Automated checks cover local Cloudflare bindings, Better Auth session validation, real Maven/Gradle interoperability, and browser management flows.
 - Publication sessions are bounded to 500 uploaded files (including sidecars), 32 artifact IDs, 32 snapshot versions, and a bounded finalization transaction. Split larger builds into separate sessions. POMs and metadata are limited to 1 MiB; ordinary file limits are configurable. The 2 GiB default has not been load-tested on deployed Workers.
 - Releases and timestamped snapshot files cannot change in place. An identical retry is accepted; adding new files to an existing release requires deleting and republishing the complete version. Non-timestamped snapshots are mutable. Signed repository metadata is rejected because the server regenerates metadata; artifact signatures are preserved but not cryptographically verified.
 - Version deletion and retention remove references immediately and delay object deletion by an hour for in-flight readers. Quotas measure logical stored content and reservations, not temporary duplicate R2 storage or retained audit/session records.
 - Console account listings are capped at 200 workspaces; publication and audit history show the latest 100 entries. File browsing uses pagination. Retention and garbage collection run in bounded batches and may take several hourly passes for a backlog.
-- Upstream mirrors/proxy caches, virtual repositories, Maven Central promotion, webhooks, download analytics, bulk imports, and a browser OAuth device flow for the CLI are future work. The CLI currently logs in with a console-issued token.
+- Upstream mirrors/proxy caches, virtual repositories, Maven Central promotion, webhooks, download analytics, bulk imports, and a browser OAuth device flow for the CLI are not implemented. The CLI logs in with a console-issued token.
+
+## License
+
+[MIT](LICENSE).
